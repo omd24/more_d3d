@@ -6,6 +6,8 @@
 #include <directxmath.h>
 #include <dxgidebug.h>
 
+#include <dxcapi.h>
+
 #include <stdio.h>
 
 #if !defined(NDEBUG) && !defined(_DEBUG)
@@ -677,30 +679,49 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     UINT compiler_flags = 0;
 #endif
 
-    wchar_t const * shaders_path = L"./shaders/cbuffer_shader.hlsl";
-    ID3DBlob * vertex_shader = nullptr;
-    ID3DBlob * vs_err = nullptr;
-    ID3DBlob * pixel_shader = nullptr;
-    ID3DBlob * ps_err = nullptr;
-    res = D3DCompileFromFile(shaders_path, nullptr, nullptr, "VertexShader_Main", "vs_5_0", compiler_flags, 0, &vertex_shader, &vs_err);
-    if (FAILED(res)) {
-        if (vs_err) {
-            OutputDebugStringA((char *)vs_err->GetBufferPointer());
-            vs_err->Release();
-        } else {
-            ::printf("could not load/compile shader\n");
-        }
-    }
-    res = D3DCompileFromFile(shaders_path, nullptr, nullptr, "PixelShader_Main", "ps_5_0", compiler_flags, 0, &pixel_shader, &ps_err);
-    if (FAILED(res)) {
-        if (ps_err) {
-            OutputDebugStringA((char *)ps_err->GetBufferPointer());
-            ps_err->Release();
-        }
-    }
-    SIMPLE_ASSERT(vertex_shader);
-    SIMPLE_ASSERT(pixel_shader);
+#pragma region Compile Shaders
+// -- using DXC shader compiler [from https://asawicki.info/news_1719_two_shader_compilers_of_direct3d_12]
 
+    IDxcLibrary * dxc_lib = nullptr;
+    HRESULT hr = DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&dxc_lib));
+    // if (FAILED(hr)) Handle error
+    IDxcCompiler * dxc_compiler = nullptr;
+    hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxc_compiler));
+    // if (FAILED(hr)) Handle error
+
+    wchar_t const * shaders_path = L"./shaders/cbuffer_shader.hlsl";
+    uint32_t code_page = CP_UTF8;
+    IDxcBlobEncoding * shader_blob = nullptr;
+    IDxcOperationResult * dxc_res = nullptr;
+    IDxcBlob * vertex_shader_code = nullptr;
+    IDxcBlob * pixel_shader_code = nullptr;
+    hr = dxc_lib->CreateBlobFromFile(shaders_path, &code_page, &shader_blob);
+    if (shader_blob) {
+        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"VertexShader_Main", L"vs_6_0", nullptr, 0, nullptr, 0, nullptr, &dxc_res);
+        dxc_res->GetStatus(&hr);
+        dxc_res->GetResult(&vertex_shader_code);
+        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"PixelShader_Main", L"ps_6_0", nullptr, 0, nullptr, 0, nullptr, &dxc_res);
+        dxc_res->GetStatus(&hr);
+        dxc_res->GetResult(&pixel_shader_code);
+
+        if (FAILED(hr)) {
+            if (dxc_res) {
+                IDxcBlobEncoding * errorsBlob = nullptr;
+                hr = dxc_res->GetErrorBuffer(&errorsBlob);
+                if (SUCCEEDED(hr) && errorsBlob) {
+                    OutputDebugStringA((const char*)errorsBlob->GetBufferPointer());
+                    return(0);
+                }
+            }
+            // Handle compilation error...
+        }
+    }
+    SIMPLE_ASSERT(vertex_shader_code);
+    SIMPLE_ASSERT(pixel_shader_code);
+
+#pragma endregion Compile Shaders
+
+#pragma region PSO Creation
     // Create vertex-input-layout Elements
     D3D12_INPUT_ELEMENT_DESC input_desc[2];
     input_desc[0] = {};
@@ -743,10 +764,10 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
     pso_desc.pRootSignature = render_ctx.root_signature;
-    pso_desc.VS.pShaderBytecode = vertex_shader->GetBufferPointer();
-    pso_desc.VS.BytecodeLength = vertex_shader->GetBufferSize();
-    pso_desc.PS.pShaderBytecode = pixel_shader->GetBufferPointer();
-    pso_desc.PS.BytecodeLength = pixel_shader->GetBufferSize();
+    pso_desc.VS.pShaderBytecode = vertex_shader_code->GetBufferPointer();
+    pso_desc.VS.BytecodeLength = vertex_shader_code->GetBufferSize();
+    pso_desc.PS.pShaderBytecode = pixel_shader_code->GetBufferPointer();
+    pso_desc.PS.BytecodeLength = pixel_shader_code->GetBufferSize();
     pso_desc.BlendState = def_blend_desc;
     pso_desc.SampleMask = UINT_MAX;
     pso_desc.RasterizerState = def_rasterizer_desc;
@@ -761,6 +782,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     pso_desc.SampleDesc.Quality = 0;
 
     CHECK_AND_FAIL(render_ctx.device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx.pso)));
+#pragma endregion PSO Creation
 
     // Create command list
     CHECK_AND_FAIL(render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, render_ctx.cmd_allocator[render_ctx.frame_index], render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list)));
@@ -1039,8 +1061,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     render_ctx.direct_cmd_list->Release();
     render_ctx.pso->Release();
 
-    pixel_shader->Release();
-    vertex_shader->Release();
+    pixel_shader_code->Release();
+    vertex_shader_code->Release();
 
     render_ctx.root_signature->Release();
     if (signature_error_blob)

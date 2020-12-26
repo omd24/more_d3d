@@ -1,0 +1,1 @@
+fxc.exe /T vs_5_0 /E VertexShader_Main cbuffer_shader.hlsl /Fo vs.bin && fxc.exe /T ps_5_0 /E PixelShader_Main cbuffer_shader.hlsl /Fo ps.bin
