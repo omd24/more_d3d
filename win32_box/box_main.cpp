@@ -47,11 +47,11 @@ bool global_running;
 
 struct SceneConstantBuffer {
     DirectX::XMFLOAT4 offset;
-    float padding [60];             // Padding so the constant buffer is 256-byte aligned
+    float padding[60];             // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(256 == sizeof(SceneConstantBuffer), "Constant buffer size must be 256b aligned");
 struct D3DRenderContext {
-    
+
     // Display data
     UINT width;
     UINT height;
@@ -63,8 +63,8 @@ struct D3DRenderContext {
     IDXGISwapChain3 *               swapchain3;
     IDXGISwapChain *                swapchain;
     ID3D12Device *                  device;
-    ID3D12Resource *                render_targets [FRAME_COUNT];
-    ID3D12CommandAllocator *        cmd_allocator [FRAME_COUNT];
+    ID3D12Resource *                render_targets[FRAME_COUNT];
+    ID3D12CommandAllocator *        cmd_allocator[FRAME_COUNT];
     ID3D12CommandAllocator *        bundle_allocator;
     ID3D12CommandQueue *            cmd_queue;
     ID3D12RootSignature *           root_signature;
@@ -92,7 +92,7 @@ struct D3DRenderContext {
     UINT                            frame_index;
     HANDLE                          fence_event;
     ID3D12Fence *                   fence;
-    UINT64                          fence_value [FRAME_COUNT];
+    UINT64                          fence_value[FRAME_COUNT];
 
 };
 struct ColorVertex {
@@ -158,18 +158,18 @@ update_constant_buffer(D3DRenderContext * render_ctx) {
 }
 static HRESULT
 render_stuff (D3DRenderContext * render_ctx) {
-    
+
     HRESULT ret = E_FAIL;
 
     // Populate command list
-    
+
     // -- reset cmd_allocator and cmd_list
-    
+
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
     CHECK_AND_FAIL(render_ctx->cmd_allocator[render_ctx->frame_index]->Reset());
-    
+
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
@@ -185,7 +185,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     ID3D12DescriptorHeap * heaps [] = {render_ctx->srv_cbv_heap};
     render_ctx->direct_cmd_list->SetDescriptorHeaps(ARRAY_COUNT(heaps), heaps);
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(0, render_ctx->srv_cbv_heap->GetGPUDescriptorHandleForHeapStart());
-    
+
     SIMPLE_ASSERT(render_ctx->srv_cbv_descriptor_size > 0);
     D3D12_GPU_DESCRIPTOR_HANDLE cbv_gpu_handle = {};
     cbv_gpu_handle.ptr = render_ctx->srv_cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + (UINT64)render_ctx->srv_cbv_descriptor_size;
@@ -201,15 +201,15 @@ render_stuff (D3DRenderContext * render_ctx) {
     barrier1.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier1);
-    
+
     // -- get CPU descriptor handle that represents the start of the rtv heap
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
     // -- apply initial offset
     rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->frame_index) * INT64(render_ctx->rtv_descriptor_size));
     render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
-    
+
     // -- record command(s)
-    
+
     // NOTE(omid): We can't use any "clear" method with bundles, so we use the command-list itself to clear rtv
     float clear_colors [] = {0.5f, 0.4f, 0.2f, 1.0f};
     render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, clear_colors, 0, nullptr);
@@ -226,7 +226,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     barrier2.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
     barrier2.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
 
-    render_ctx->direct_cmd_list->ResourceBarrier(1 , &barrier2);
+    render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier2);
 
     // -- finish populating command list
     render_ctx->direct_cmd_list->Close();
@@ -244,22 +244,22 @@ create_triangle_vertices (float aspect_ratio, TextuVertex out_vertices []) {
     vtx1.position.x = 0.0f;
     vtx1.position.y = 0.25f * aspect_ratio;
     vtx1.position.z = 0.0f;
-    vtx1.uv.x       = 0.5f;
-    vtx1.uv.y       = 0.0f;
+    vtx1.uv.x = 0.5f;
+    vtx1.uv.y = 0.0f;
 
     TextuVertex vtx2 = {};
     vtx2.position.x = 0.25f;
     vtx2.position.y = -0.25f * aspect_ratio;
     vtx2.position.z = 0.0f;
-    vtx2.uv.x       = 1.0f;
-    vtx2.uv.y       = 1.0f;
+    vtx2.uv.x = 1.0f;
+    vtx2.uv.y = 1.0f;
 
     TextuVertex vtx3 = {};
     vtx3.position.x = -0.25f;
     vtx3.position.y = -0.25f * aspect_ratio;
     vtx3.position.z = 0.0f;
-    vtx3.uv.x       = 0.0f;
-    vtx3.uv.y       = 1.0f;
+    vtx3.uv.x = 0.0f;
+    vtx3.uv.y = 1.0f;
 
     out_vertices[0] = vtx1;
     out_vertices[1] = vtx2;
@@ -271,29 +271,29 @@ create_quad_vertices (float aspect_ratio, TextuVertex out_vertices []) {
     vtx1.position.x = -0.3f;
     vtx1.position.y = 0.3f * aspect_ratio;
     vtx1.position.z = 0.0f;
-    vtx1.uv.x       = 0.0f;
-    vtx1.uv.y       = 0.5f;
+    vtx1.uv.x = 0.0f;
+    vtx1.uv.y = 0.5f;
 
     TextuVertex vtx2 = {};
     vtx2.position.x = 0.3f;
     vtx2.position.y = 0.3f * aspect_ratio;
     vtx2.position.z = 0.0f;
-    vtx2.uv.x       = 0.5f;
-    vtx2.uv.y       = 0.5f;
+    vtx2.uv.x = 0.5f;
+    vtx2.uv.y = 0.5f;
 
     TextuVertex vtx3 = {};
     vtx3.position.x = -0.3f;
     vtx3.position.y = -0.3f * aspect_ratio;
     vtx3.position.z = 0.0f;
-    vtx3.uv.x       = 0.0f;
-    vtx3.uv.y       = 0.0f;
+    vtx3.uv.x = 0.0f;
+    vtx3.uv.y = 0.0f;
 
     TextuVertex vtx4 = {};
     vtx4.position.x = 0.3f;
     vtx4.position.y = -0.3f * aspect_ratio;
     vtx4.position.z = 0.0f;
-    vtx4.uv.x       = 0.5f;
-    vtx4.uv.y       = 0.0f;
+    vtx4.uv.x = 0.5f;
+    vtx4.uv.y = 0.0f;
 
     out_vertices[0] = vtx1;
     out_vertices[1] = vtx2;
@@ -309,7 +309,7 @@ generate_checkerboard_pattern (
     bool ret = false;
     if (texture_ptr) {
         for (uint32_t i = 0; i < texture_size; i += bytes_per_pixel) {
-            
+
             uint32_t x = i % row_pitch;         // row index
             uint32_t y = i / row_pitch;         // column index
 
@@ -320,8 +320,8 @@ generate_checkerboard_pattern (
             // -- color cell
             if (xx % 2 == yy % 2) {
                 // white
-                texture_ptr[i] = 0xaa;          // R
-                texture_ptr[i + 1] = 0xbb;      // G
+                texture_ptr[i] = 0xdd;          // R
+                texture_ptr[i + 1] = 0xee;      // G
                 texture_ptr[i + 2] = 0xff;      // B
                 texture_ptr[i + 3] = 0xff;      // A
 
@@ -341,19 +341,19 @@ static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     LRESULT ret = {};
     switch (uMsg) {
-        /* WM_PAIN is not handled for now ... 
+        /* WM_PAIN is not handled for now ...
         case WM_PAINT: {
-            
+
         } break;
         */
-        case WM_CLOSE: {
-            global_running = false;
-            DestroyWindow(hwnd);
-            ret = 0;
-        } break;
-        default: {
-            ret = DefWindowProcA(hwnd, uMsg, wParam, lParam);
-        } break;
+    case WM_CLOSE: {
+        global_running = false;
+        DestroyWindow(hwnd);
+        ret = 0;
+    } break;
+    default: {
+        ret = DefWindowProcA(hwnd, uMsg, wParam, lParam);
+    } break;
     }
     return ret;
 }
@@ -410,22 +410,22 @@ copy_texture_data_to_texture_resource (
     /*if (textu_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
         render_ctx->direct_cmd_list->CopyBufferRegion(render_ctx->texture, 0, texture_upload_heap, layouts[0].Offset, layouts[0].Footprint.Width);
     } else {*/
-        for (UINT i = 0; i < num_subresources; ++i) {
-            D3D12_TEXTURE_COPY_LOCATION dst = {};
-            dst.pResource = render_ctx->texture;
-            dst.SubresourceIndex = first_subresource + i;
-            dst.PlacedFootprint = {};
-            dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    for (UINT i = 0; i < num_subresources; ++i) {
+        D3D12_TEXTURE_COPY_LOCATION dst = {};
+        dst.pResource = render_ctx->texture;
+        dst.SubresourceIndex = first_subresource + i;
+        dst.PlacedFootprint = {};
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
 
-            D3D12_TEXTURE_COPY_LOCATION src = {};
-            src.pResource = texture_upload_heap;
-            src.SubresourceIndex = 0;
-            src.PlacedFootprint = layouts[i];
-            src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        D3D12_TEXTURE_COPY_LOCATION src = {};
+        src.pResource = texture_upload_heap;
+        src.SubresourceIndex = 0;
+        src.PlacedFootprint = layouts[i];
+        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 
-            render_ctx->direct_cmd_list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-        }
-    /*}*/
+        render_ctx->direct_cmd_list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+    }
+/*}*/
     HeapFree(GetProcessHeap(), 0, mem_ptr);
 }
 INT WINAPI
@@ -433,9 +433,9 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     // ========================================================================================================
 #pragma region Windows_Setup
     WNDCLASSA wc = {};
-    wc.style = CS_HREDRAW|CS_VREDRAW|CS_OWNDC;
-    wc.lpfnWndProc   = main_win_cb;
-    wc.hInstance     = hInstance;
+    wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+    wc.lpfnWndProc = main_win_cb;
+    wc.hInstance = hInstance;
     wc.lpszClassName = "d3d12_win32";
 
     SIMPLE_ASSERT(RegisterClassA(&wc));
@@ -446,7 +446,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
         "3D box app",           // Window title
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,       // Window style
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, // Size and position settings
-        0 /* Parent window */,  0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
+        0 /* Parent window */, 0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
     );
     SIMPLE_ASSERT(hwnd);
 #pragma endregion Windows_Setup
@@ -454,13 +454,13 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     // ========================================================================================================
 #pragma region Enable_Debug_Layer
     UINT dxgiFactoryFlags = 0;
-    #if ENABLE_DEBUG_LAYER > 0
-        ID3D12Debug * debug_interface_dx = nullptr;
-        if(SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface_dx)))) {
-            debug_interface_dx->EnableDebugLayer();
-            dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-        }
-    #endif
+#if ENABLE_DEBUG_LAYER > 0
+    ID3D12Debug * debug_interface_dx = nullptr;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface_dx)))) {
+        debug_interface_dx->EnableDebugLayer();
+        dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+    }
+#endif
 #pragma endregion Enable_Debug_Layer
 
     // ========================================================================================================
@@ -486,7 +486,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
         adapters[i] = pAdapter;
         DXGI_ADAPTER_DESC adapter_desc = {};
         ::printf("GPU Info [%d] :\n", i);
-        if(SUCCEEDED(pAdapter->GetDesc(&adapter_desc))) {
+        if (SUCCEEDED(pAdapter->GetDesc(&adapter_desc))) {
             ::printf("\tDescription: %ls\n", adapter_desc.Description);
             ::printf("\tDedicatedVideoMemory: %zu\n", adapter_desc.DedicatedVideoMemory);
         }
@@ -547,7 +547,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     CHECK_AND_FAIL(render_ctx.device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx.rtv_heap)));
-    
+
     // NOTE(omid): We create a single descriptor heap for both SRV and CBV 
     // -- A shader resource view (SRV) for the texture  (index 0 of srv_cbv_heap) 
     // -- A constant buffer view (CBV) for animation    (index 1 of srv_cbv_heap) 
@@ -568,7 +568,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx.rtv_heap->GetCPUDescriptorHandleForHeapStart();
     for (UINT i = 0; i < FRAME_COUNT; ++i) {
         CHECK_AND_FAIL(render_ctx.swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx.render_targets[i])));
-        
+
         D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = {};
         cpu_handle.ptr = rtv_handle_start.ptr + ((UINT64)i * render_ctx.rtv_descriptor_size);
         // -- create a rtv for each frame
@@ -593,7 +593,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
         ::printf("root signature version 1_1 is not supported, switched to 1_0!");
     }
 
-    D3D12_DESCRIPTOR_RANGE1 ranges [2] = {};
+    D3D12_DESCRIPTOR_RANGE1 ranges[2] = {};
 
     // -- define a range of srv descriptor(s)
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -613,7 +613,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
 
     // NOTE(omid): descriptor tables are ranges in a descriptor heap
 
-    D3D12_ROOT_PARAMETER1 root_paramters [2] = {};
+    D3D12_ROOT_PARAMETER1 root_paramters[2] = {};
 
     // -- srv parameter space (s0)
     root_paramters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -643,9 +643,9 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_FLAGS root_signature_flags =
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT    |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS          |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS        |
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
         //D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
 
@@ -666,11 +666,11 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     CHECK_AND_FAIL(D3D12SerializeVersionedRootSignature(&root_signature_desc, &signature, &signature_error_blob));
 
     CHECK_AND_FAIL(render_ctx.device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&render_ctx.root_signature)));
-    
+
 #pragma endregion Root Signature
 
     // Load and compile shaders
-    
+
 #if defined(_DEBUG)
     UINT compiler_flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #else
@@ -702,12 +702,12 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     SIMPLE_ASSERT(pixel_shader);
 
     // Create vertex-input-layout Elements
-    D3D12_INPUT_ELEMENT_DESC input_desc [2];
+    D3D12_INPUT_ELEMENT_DESC input_desc[2];
     input_desc[0] = {};
     input_desc[0].SemanticName = "POSITION";
     input_desc[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
     input_desc[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
-    
+
     input_desc[1] = {};
     input_desc[1].SemanticName = "TEXCOORD";
     input_desc[1].Format = DXGI_FORMAT_R32G32_FLOAT;
@@ -717,18 +717,18 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     // Create pipeline state object
 
     D3D12_BLEND_DESC def_blend_desc = {};
-    def_blend_desc.AlphaToCoverageEnable                    = FALSE;
-    def_blend_desc.IndependentBlendEnable                   = FALSE;
-    def_blend_desc.RenderTarget[0].BlendEnable              = FALSE;
-    def_blend_desc.RenderTarget[0].LogicOpEnable            = FALSE;
-    def_blend_desc.RenderTarget[0].SrcBlend                 = D3D12_BLEND_ONE;
-    def_blend_desc.RenderTarget[0].DestBlend                = D3D12_BLEND_ZERO;
-    def_blend_desc.RenderTarget[0].BlendOp                  = D3D12_BLEND_OP_ADD;
-    def_blend_desc.RenderTarget[0].SrcBlendAlpha            = D3D12_BLEND_ONE;
-    def_blend_desc.RenderTarget[0].DestBlendAlpha           = D3D12_BLEND_ZERO;
-    def_blend_desc.RenderTarget[0].BlendOpAlpha             = D3D12_BLEND_OP_ADD;
-    def_blend_desc.RenderTarget[0].LogicOp                  = D3D12_LOGIC_OP_NOOP;
-    def_blend_desc.RenderTarget[0].RenderTargetWriteMask    = D3D12_COLOR_WRITE_ENABLE_ALL;
+    def_blend_desc.AlphaToCoverageEnable = FALSE;
+    def_blend_desc.IndependentBlendEnable = FALSE;
+    def_blend_desc.RenderTarget[0].BlendEnable = FALSE;
+    def_blend_desc.RenderTarget[0].LogicOpEnable = FALSE;
+    def_blend_desc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    def_blend_desc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
+    def_blend_desc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    def_blend_desc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    def_blend_desc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+    def_blend_desc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    def_blend_desc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
+    def_blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
     D3D12_RASTERIZER_DESC def_rasterizer_desc = {};
     def_rasterizer_desc.FillMode = D3D12_FILL_MODE_SOLID;
@@ -768,7 +768,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     // vertex data
     /*TextuVertex vertices [3] = {};
     create_triangle_vertices(render_ctx.aspect_ratio, vertices);*/
-    TextuVertex vertices [4] = {};
+    TextuVertex vertices[4] = {};
     create_quad_vertices(render_ctx.aspect_ratio, vertices);
     size_t vb_size = sizeof(vertices);
 
@@ -874,13 +874,13 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     );
 
     // -- generate texture data
-    uint32_t texture_width      = 256;
-    uint32_t texture_height     = 256;
-    uint32_t bytes_per_pixel    = 4;
-    uint32_t row_pitch          = texture_width * bytes_per_pixel;
-    uint32_t cell_width         = (texture_width >> 3) * bytes_per_pixel;           // actual "cell_width" muliplied by "bytes_per_pixel"
-    uint32_t cell_height        = (texture_height >> 3);
-    uint32_t texture_size       = texture_width * texture_height * bytes_per_pixel;
+    uint32_t texture_width = 256;
+    uint32_t texture_height = 256;
+    uint32_t bytes_per_pixel = 4;
+    uint32_t row_pitch = texture_width * bytes_per_pixel;
+    uint32_t cell_width = (texture_width >> 3) * bytes_per_pixel;           // actual "cell_width" muliplied by "bytes_per_pixel"
+    uint32_t cell_height = (texture_height >> 3);
+    uint32_t texture_size = texture_width * texture_height * bytes_per_pixel;
     // TODO(omid): perhaps create texture on stack?
     uint8_t * texture_ptr = reinterpret_cast<uint8_t *>(::malloc(texture_size));
     // -- create a simple yellow and black checkerboard pattern
@@ -926,7 +926,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     cbuffer_heap_props.CreationNodeMask = 1U;
     cbuffer_heap_props.VisibleNodeMask = 1U;
 
-        D3D12_RESOURCE_DESC cb_desc = {};
+    D3D12_RESOURCE_DESC cb_desc = {};
     cb_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
     cb_desc.Alignment = 0;
     cb_desc.Width = cb_size;
@@ -987,11 +987,11 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
 
     // Create an event handle to use for frame synchronization.
     render_ctx.fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if(nullptr == render_ctx.fence_event) {
+    if (nullptr == render_ctx.fence_event) {
         // map the error code to an HRESULT value.
         CHECK_AND_FAIL(HRESULT_FROM_WIN32(GetLastError()));
     }
-        
+
     // Wait for the command list to execute; we are reusing the same command 
     // list in our main loop but for now, we just want to wait for setup to 
     // complete before continuing.
@@ -1002,7 +1002,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     // ========================================================================================================
 #pragma region Main_Loop
     global_running = true;
-    while(global_running) {
+    while (global_running) {
         MSG msg = {};
         while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
@@ -1029,7 +1029,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     render_ctx.bundle->Release();
 
     texture_upload_heap->Release();
-    
+
     ::free(texture_ptr);
 
     render_ctx.constant_buffer->Release();
@@ -1063,13 +1063,13 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     render_ctx.device->Release();
     dxgi_factory->Release();
 
-    #if (ENABLE_DEBUG_LAYER > 0)
-        debug_interface_dx->Release();
-    #endif
+#if (ENABLE_DEBUG_LAYER > 0)
+    debug_interface_dx->Release();
+#endif
 
-    // -- advanced debugging and reporting live objects [from https://walbourn.github.io/dxgi-debug-device/]
+// -- advanced debugging and reporting live objects [from https://walbourn.github.io/dxgi-debug-device/]
 
-    typedef HRESULT (WINAPI * LPDXGIGETDEBUGINTERFACE)(REFIID, void ** );
+    typedef HRESULT (WINAPI * LPDXGIGETDEBUGINTERFACE)(REFIID, void **);
 
     //HMODULE dxgidebug_dll = LoadLibraryEx( L"dxgidebug_dll.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32 );
     HMODULE dxgidebug_dll = LoadLibrary(L"DXGIDebug.dll");
