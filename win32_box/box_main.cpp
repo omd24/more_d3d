@@ -47,11 +47,11 @@ bool global_running;
 // may result in noticeable latency in your app.
 #define FRAME_COUNT 2
 
-struct SceneConstantBuffer {
-    DirectX::XMFLOAT4 offset;
-    float padding[60];             // Padding so the constant buffer is 256-byte aligned
+struct ObjectConstantBuffer {
+    DirectX::XMFLOAT4X4 world_view_proj;
+    float padding[48];             // Padding so the constant buffer is 256-byte aligned
 };
-static_assert(256 == sizeof(SceneConstantBuffer), "Constant buffer size must be 256b aligned");
+static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
 struct D3DRenderContext {
 
     // Display data
@@ -87,7 +87,7 @@ struct D3DRenderContext {
     ID3D12Resource *                vertex_buffer;
     D3D12_VERTEX_BUFFER_VIEW        vb_view;
     ID3D12Resource *                constant_buffer;
-    SceneConstantBuffer             constant_buffer_data;
+    ObjectConstantBuffer            constant_buffer_data;
     uint8_t *                       cbv_data_begin_ptr;
 
     // Synchronization stuff
@@ -147,16 +147,38 @@ wait_for_gpu (D3DRenderContext * render_ctx) {
 
     return ret;
 }
+static DirectX::XMFLOAT4X4
+Identity4x4() {
+    static DirectX::XMFLOAT4X4 I(
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f);
+
+    return I;
+}
 static void
 update_constant_buffer(D3DRenderContext * render_ctx) {
-    const float translation_speed = 0.003f;
-    const float offset_bounds = 1.3f;
+    DirectX::XMFLOAT4X4 identity = Identity4x4();
+    DirectX::XMMATRIX view = DirectX::XMLoadFloat4x4(&identity);
+    DirectX::XMMATRIX world = DirectX::XMLoadFloat4x4(&identity);
+    DirectX::XMMATRIX proj = DirectX::XMLoadFloat4x4(&identity);
+    DirectX::XMMATRIX world_view_proj = world*view*proj;
 
-    render_ctx->constant_buffer_data.offset.x -= translation_speed;
-    if (render_ctx->constant_buffer_data.offset.x < -offset_bounds) {
-        render_ctx->constant_buffer_data.offset.x = offset_bounds;
-    }
+    DirectX::XMStoreFloat4x4(&render_ctx->constant_buffer_data.world_view_proj, DirectX::XMMatrixTranspose(world_view_proj));
+
     memcpy(render_ctx->cbv_data_begin_ptr, &render_ctx->constant_buffer_data, sizeof(render_ctx->constant_buffer_data));
+}
+static D3D12_RESOURCE_BARRIER
+create_barrier (ID3D12Resource * resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = resource;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = before;
+    barrier.Transition.StateAfter = after;
+    return barrier;
 }
 static HRESULT
 render_stuff (D3DRenderContext * render_ctx) {
@@ -194,14 +216,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, cbv_gpu_handle);
 
     // -- indicate that the backbuffer will be used as the render target
-    D3D12_RESOURCE_BARRIER barrier1 = {};
-    barrier1.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier1.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrier1.Transition.pResource = render_ctx->render_targets[render_ctx->frame_index];
-    barrier1.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier1.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-    barrier1.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-
+    D3D12_RESOURCE_BARRIER barrier1 = create_barrier(render_ctx->render_targets[render_ctx->frame_index], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier1);
 
     // -- get CPU descriptor handle that represents the start of the rtv heap
@@ -220,13 +235,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->ExecuteBundle(render_ctx->bundle);
 
     // -- indicate that the backbuffer will now be used to present
-    D3D12_RESOURCE_BARRIER barrier2 = {};
-    barrier2.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier2.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrier2.Transition.pResource = render_ctx->render_targets[render_ctx->frame_index];
-    barrier2.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier2.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    barrier2.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+    D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->render_targets[render_ctx->frame_index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier2);
 
@@ -551,8 +560,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     CHECK_AND_FAIL(render_ctx.device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx.rtv_heap)));
 
     // NOTE(omid): We create a single descriptor heap for both SRV and CBV 
-    // -- A shader resource view (SRV) for the texture  (index 0 of srv_cbv_heap) 
-    // -- A constant buffer view (CBV) for animation    (index 1 of srv_cbv_heap) 
+    // -- A shader resource view (SRV) for the texture      (index 0 of srv_cbv_heap) 
+    // -- A constant buffer view (CBV) for word_view_proj   (index 1 of srv_cbv_heap) 
 
     // Create srv_cbv_heap for SRV and CBV
     // Flags indicate that this descriptor heap can be bound to the pipeline
@@ -689,7 +698,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxc_compiler));
     // if (FAILED(hr)) Handle error
 
-    wchar_t const * shaders_path = L"./shaders/cbuffer_shader.hlsl";
+    wchar_t const * shaders_path = L"./shaders/box_shader.hlsl";
     uint32_t code_page = CP_UTF8;
     IDxcBlobEncoding * shader_blob = nullptr;
     IDxcOperationResult * dxc_res = nullptr;
@@ -788,8 +797,6 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     CHECK_AND_FAIL(render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, render_ctx.cmd_allocator[render_ctx.frame_index], render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list)));
 
     // vertex data
-    /*TextuVertex vertices [3] = {};
-    create_triangle_vertices(render_ctx.aspect_ratio, vertices);*/
     TextuVertex vertices[4] = {};
     create_quad_vertices(render_ctx.aspect_ratio, vertices);
     size_t vb_size = sizeof(vertices);
@@ -941,7 +948,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     render_ctx.cmd_queue->ExecuteCommandLists(ARRAY_COUNT(cmd_lists), cmd_lists);
 
 #pragma region Create Constant Buffer
-    const UINT cb_size = sizeof(SceneConstantBuffer);    // CB size is required to be 256-byte aligned.
+    const UINT cb_size = sizeof(ObjectConstantBuffer);    // CB size is required to be 256-byte aligned.
 
     D3D12_HEAP_PROPERTIES cbuffer_heap_props = {};
     cbuffer_heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
