@@ -79,13 +79,13 @@ struct D3DRenderContext {
     ID3D12DescriptorHeap *          rtv_heap;
     // NOTE(omid): Instead of separate descriptor heap use one for both srv and cbv 
     ID3D12DescriptorHeap *          srv_cbv_heap;
-    //ID3D12DescriptorHeap *          srv_heap;
-    //ID3D12DescriptorHeap *          cbv_heap;
 
     // App resources
     ID3D12Resource *                texture;
     ID3D12Resource *                vertex_buffer;
+    ID3D12Resource *                index_buffer;
     D3D12_VERTEX_BUFFER_VIEW        vb_view;
+    D3D12_INDEX_BUFFER_VIEW         ib_view;
     ID3D12Resource *                constant_buffer;
     ObjectConstantBuffer            constant_buffer_data;
     uint8_t *                       cbv_data_begin_ptr;
@@ -159,11 +159,30 @@ Identity4x4() {
 }
 static void
 update_constant_buffer(D3DRenderContext * render_ctx) {
-    DirectX::XMFLOAT4X4 identity = Identity4x4();
-    DirectX::XMMATRIX view = DirectX::XMLoadFloat4x4(&identity);
-    DirectX::XMMATRIX world = DirectX::XMLoadFloat4x4(&identity);
-    DirectX::XMMATRIX proj = DirectX::XMLoadFloat4x4(&identity);
-    DirectX::XMMATRIX world_view_proj = world*view*proj;
+
+    using namespace DirectX;
+
+    XMFLOAT4X4 identity = Identity4x4();
+    float theta = 1.5f * XM_PI;
+    float phi = XM_PIDIV4;
+    float radius = 5.0f;
+    // Convert Spherical to Cartesian coordinates.
+    float x = radius * sinf(phi) * cosf(theta);
+    float z = radius * sinf(phi) * sinf(theta);
+    float y = radius * cosf(phi);
+
+    // Build the view matrix.
+    XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
+    XMVECTOR target = XMVectorZero();
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view_temp = XMMatrixLookAtLH(pos, target, up);
+    XMFLOAT4X4 view = identity;
+    XMStoreFloat4x4(&view, view_temp);
+
+    XMMATRIX world = XMLoadFloat4x4(&identity);
+    XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * XM_PI, render_ctx->aspect_ratio, 1.0f, 1000.0f);
+    XMMATRIX world_view_proj = world * view_temp * proj;
 
     DirectX::XMStoreFloat4x4(&render_ctx->constant_buffer_data.world_view_proj, DirectX::XMMatrixTranspose(world_view_proj));
 
@@ -250,66 +269,146 @@ render_stuff (D3DRenderContext * render_ctx) {
     return ret;
 }
 static void
-create_triangle_vertices (float aspect_ratio, TextuVertex out_vertices []) {
+create_box_vertices (TextuVertex out_vertices [], uint16_t out_indices []) {
     TextuVertex vtx1 = {};
-    vtx1.position.x = 0.0f;
-    vtx1.position.y = 0.25f * aspect_ratio;
-    vtx1.position.z = 0.0f;
-    vtx1.uv.x = 0.5f;
+    vtx1.position.x = -0.5f;
+    vtx1.position.y = -0.5f;
+    vtx1.position.z = -0.5f;
+    vtx1.uv.x = 0.0f;
     vtx1.uv.y = 0.0f;
 
     TextuVertex vtx2 = {};
-    vtx2.position.x = 0.25f;
-    vtx2.position.y = -0.25f * aspect_ratio;
-    vtx2.position.z = 0.0f;
-    vtx2.uv.x = 1.0f;
-    vtx2.uv.y = 1.0f;
-
-    TextuVertex vtx3 = {};
-    vtx3.position.x = -0.25f;
-    vtx3.position.y = -0.25f * aspect_ratio;
-    vtx3.position.z = 0.0f;
-    vtx3.uv.x = 0.0f;
-    vtx3.uv.y = 1.0f;
-
-    out_vertices[0] = vtx1;
-    out_vertices[1] = vtx2;
-    out_vertices[2] = vtx3;
-}
-static void
-create_quad_vertices (float aspect_ratio, TextuVertex out_vertices []) {
-    TextuVertex vtx1 = {};
-    vtx1.position.x = -0.3f;
-    vtx1.position.y = 0.3f * aspect_ratio;
-    vtx1.position.z = 0.0f;
-    vtx1.uv.x = 0.0f;
-    vtx1.uv.y = 0.5f;
-
-    TextuVertex vtx2 = {};
-    vtx2.position.x = 0.3f;
-    vtx2.position.y = 0.3f * aspect_ratio;
-    vtx2.position.z = 0.0f;
-    vtx2.uv.x = 0.5f;
+    vtx2.position.x = -0.5f;
+    vtx2.position.y = +0.5f;
+    vtx2.position.z = -0.5f;
+    vtx2.uv.x = 0.0f;
     vtx2.uv.y = 0.5f;
 
     TextuVertex vtx3 = {};
-    vtx3.position.x = -0.3f;
-    vtx3.position.y = -0.3f * aspect_ratio;
-    vtx3.position.z = 0.0f;
-    vtx3.uv.x = 0.0f;
-    vtx3.uv.y = 0.0f;
+    vtx3.position.x = +0.5f;
+    vtx3.position.y = +0.5f;
+    vtx3.position.z = -0.5f;
+    vtx3.uv.x = 0.5f;
+    vtx3.uv.y = 0.5f;
 
     TextuVertex vtx4 = {};
-    vtx4.position.x = 0.3f;
-    vtx4.position.y = -0.3f * aspect_ratio;
-    vtx4.position.z = 0.0f;
+    vtx4.position.x = +0.5f;
+    vtx4.position.y = -0.5f;
+    vtx4.position.z = -0.5f;
     vtx4.uv.x = 0.5f;
     vtx4.uv.y = 0.0f;
+
+    TextuVertex vtx5 = {};
+    vtx5.position.x = -0.5f;
+    vtx5.position.y = -0.5f;
+    vtx5.position.z = +0.5f;
+    vtx5.uv.x = 10.0f;
+    vtx5.uv.y = 10.0f;
+
+    TextuVertex vtx6 = {};
+    vtx6.position.x = -0.5f;
+    vtx6.position.y = +0.5f;
+    vtx6.position.z = +0.5f;
+    vtx6.uv.x = 10.0f;
+    vtx6.uv.y = 10.0f;
+
+    TextuVertex vtx7 = {};
+    vtx7.position.x = +0.5f;
+    vtx7.position.y = +0.5f;
+    vtx7.position.z = +0.5f;
+    vtx7.uv.x = 10.5f;
+    vtx7.uv.y = 10.5f;
+
+    TextuVertex vtx8 = {};
+    vtx8.position.x = +0.5f;
+    vtx8.position.y = -0.5f;
+    vtx8.position.z = +0.5f;
+    vtx8.uv.x = 10.0f;
+    vtx8.uv.y = 10.0f;
 
     out_vertices[0] = vtx1;
     out_vertices[1] = vtx2;
     out_vertices[2] = vtx3;
     out_vertices[3] = vtx4;
+    out_vertices[4] = vtx5;
+    out_vertices[5] = vtx6;
+    out_vertices[6] = vtx7;
+    out_vertices[7] = vtx8;
+
+    // front face
+    out_indices[0] = 0;
+    out_indices[1] = 1;
+    out_indices[2] = 2;
+    out_indices[3] = 0;
+    out_indices[4] = 2;
+    out_indices[5] = 3;
+
+    // back face
+    out_indices[6] = 4;
+    out_indices[7] = 6;
+    out_indices[8] = 5;
+    out_indices[9] = 4;
+    out_indices[10] = 7;
+    out_indices[11] = 6;
+
+    // left face
+    out_indices[12] = 4;
+    out_indices[13] = 5;
+    out_indices[14] = 1;
+    out_indices[15] = 4;
+    out_indices[16] = 1;
+    out_indices[17] = 0;
+
+    // right face
+    out_indices[18] = 3;
+    out_indices[19] = 2;
+    out_indices[20] = 6;
+    out_indices[21] = 3;
+    out_indices[22] = 6;
+    out_indices[23] = 7;
+
+    // top face
+    out_indices[24] = 1;
+    out_indices[25] = 5;
+    out_indices[26] = 6;
+    out_indices[27] = 1;
+    out_indices[28] = 6;
+    out_indices[29] = 2;
+
+    // bottom face
+    out_indices[30] = 4;
+    out_indices[31] = 0;
+    out_indices[32] = 3;
+    out_indices[33] = 4;
+    out_indices[34] = 3;
+    out_indices[35] = 7;
+
+    //{
+    //    // front face
+    //    0, 1, 2,
+    //    0, 2, 3,
+
+    //    // back face
+    //    4, 6, 5,
+    //    4, 7, 6,
+
+    //    // left face
+    //    4, 5, 1,
+    //    4, 1, 0,
+
+    //    // right face
+    //    3, 2, 6,
+    //    3, 6, 7,
+
+    //    // top face
+    //    1, 5, 6,
+    //    1, 6, 2,
+
+    //    // bottom face
+    //    4, 0, 3,
+    //    4, 3, 7
+    //}
+
 }
 static bool
 generate_checkerboard_pattern (
@@ -482,6 +581,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     render_ctx.viewport.TopLeftY = 0;
     render_ctx.viewport.Width = (float)render_ctx.width;
     render_ctx.viewport.Height = (float)render_ctx.height;
+    render_ctx.viewport.MinDepth = 0.0f;
+    render_ctx.viewport.MaxDepth = 1.0f;
     render_ctx.scissor_rect.left = 0;
     render_ctx.scissor_rect.top = 0;
     render_ctx.scissor_rect.right = render_ctx.width;
@@ -791,15 +892,17 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     pso_desc.SampleDesc.Quality = 0;
 
     CHECK_AND_FAIL(render_ctx.device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx.pso)));
-#pragma endregion PSO Creation
-
     // Create command list
     CHECK_AND_FAIL(render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, render_ctx.cmd_allocator[render_ctx.frame_index], render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list)));
+#pragma endregion PSO Creation
 
-    // vertex data
-    TextuVertex vertices[4] = {};
-    create_quad_vertices(render_ctx.aspect_ratio, vertices);
+#pragma region Create Vertex Buffer and Index Buffer
+    // vertex data and indices
+    TextuVertex vertices[8] = {};
+    uint16_t indices[36] = {};
+    create_box_vertices(vertices, indices);
     size_t vb_size = sizeof(vertices);
+    size_t ib_size = sizeof(indices);
 
     D3D12_HEAP_PROPERTIES vb_heap_props = {};
     vb_heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -838,6 +941,45 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     render_ctx.vb_view.StrideInBytes = sizeof(*vertices);
     render_ctx.vb_view.SizeInBytes = (UINT)vb_size;
 
+    // --repeat for index buffer...
+    D3D12_HEAP_PROPERTIES ib_heap_prop = {};
+    ib_heap_prop.Type = D3D12_HEAP_TYPE_UPLOAD;
+    ib_heap_prop.CreationNodeMask = 1U;
+    ib_heap_prop.VisibleNodeMask = 1U;
+
+    D3D12_RESOURCE_DESC ib_desc = {};
+    ib_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
+    ib_desc.Alignment = 0;
+    ib_desc.Width = ib_size;
+    ib_desc.Height = 1;
+    ib_desc.DepthOrArraySize = 1;
+    ib_desc.MipLevels = 1;
+    ib_desc.Format = DXGI_FORMAT_UNKNOWN;
+    ib_desc.SampleDesc.Count = 1;
+    ib_desc.SampleDesc.Quality = 0;
+    ib_desc.Layout = D3D12_TEXTURE_LAYOUT::D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ib_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    CHECK_AND_FAIL(render_ctx.device->CreateCommittedResource(
+        &ib_heap_prop, D3D12_HEAP_FLAG_NONE, &ib_desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr, IID_PPV_ARGS(&render_ctx.index_buffer)
+    ));
+
+    // Copy vertex data to vertex buffer
+    uint8_t * indices_data = nullptr;
+    D3D12_RANGE ib_mem_range = {};
+    ib_mem_range.Begin = ib_mem_range.End = 0; // We do not intend to read from this resource on the CPU.
+    render_ctx.index_buffer->Map(0, &ib_mem_range, reinterpret_cast<void **>(&indices_data));
+    memcpy(indices_data, indices, ib_size);
+    render_ctx.index_buffer->Unmap(0, nullptr /*aka full-range*/);
+
+    // Initialize the vertex buffer view (vbv)
+    render_ctx.ib_view.BufferLocation = render_ctx.index_buffer->GetGPUVirtualAddress();
+    render_ctx.ib_view.Format = DXGI_FORMAT_R16_UINT;
+    render_ctx.ib_view.SizeInBytes = (UINT)ib_size;
+
+#pragma endregion Create Vertex Buffer and Index Buffer
 #pragma region Create Texture
     // Note: This pointer is a CPU object but this resource needs to stay in scope until
     // the command list that references it has finished executing on the GPU.
@@ -1001,9 +1143,10 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     // -- create and record the bundle
     CHECK_AND_FAIL(render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_BUNDLE, render_ctx.bundle_allocator, render_ctx.pso, IID_PPV_ARGS(&render_ctx.bundle)));
     render_ctx.bundle->SetGraphicsRootSignature(render_ctx.root_signature);
-    render_ctx.bundle->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    render_ctx.bundle->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     render_ctx.bundle->IASetVertexBuffers(0, 1, &render_ctx.vb_view);
-    render_ctx.bundle->DrawInstanced(4, 1, 0, 0);
+    render_ctx.bundle->IASetIndexBuffer(&render_ctx.ib_view);
+    render_ctx.bundle->DrawIndexedInstanced(ARRAY_COUNT(indices), 1, 0, 0, 0);
     CHECK_AND_FAIL(render_ctx.bundle->Close());
 #pragma endregion Bundle
 
@@ -1063,6 +1206,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
 
     render_ctx.constant_buffer->Release();
     render_ctx.texture->Release();
+    render_ctx.index_buffer->Release();
     render_ctx.vertex_buffer->Release();
 
     render_ctx.direct_cmd_list->Release();
