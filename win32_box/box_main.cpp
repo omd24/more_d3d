@@ -1,14 +1,12 @@
-#include <windows.h>
 #include <d3d12.h>
 
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
-#include <directxmath.h>
 #include <dxgidebug.h>
 
 #include <dxcapi.h>
 
-#include <stdio.h>
+#include "utils.h"
 
 #if !defined(NDEBUG) && !defined(_DEBUG)
 #error "Define at least one."
@@ -16,28 +14,13 @@
 #error "Define at most one."
 #endif
 
-#define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
-//#define SUCCEEDED_OPERATION(hr)   (((HRESULT)(hr)) == S_OK)
-#define FAILED(hr)      (((HRESULT)(hr)) < 0)
-//#define FAILED_OPERATION(hr)      (((HRESULT)(hr)) != S_OK)
-#define CHECK_AND_FAIL(hr)                          \
-    if (FAILED(hr)) {                               \
-        ::printf("[ERROR] " #hr "() failed at line %d. \n", __LINE__);   \
-        ::abort();                                  \
-    }                                               \
-
 #if defined(_DEBUG)
 #define ENABLE_DEBUG_LAYER 1
 #else
 #define ENABLE_DEBUG_LAYER 0
 #endif
 
-bool global_running;
-
-#define ARRAY_COUNT(arr)            sizeof(arr)/sizeof(arr[0])
-#define SIMPLE_ASSERT(exp) if(!(exp))  {*(int *)0 = 0;}
-
-// In this sample we overload the meaning of FrameCount to mean both the maximum
+// Currently we overload the meaning of FrameCount to mean both the maximum
 // number of frames that will be queued to the GPU at a time, as well as the number
 // of back buffers in the DXGI swap chain. For the majority of applications, this
 // is convenient and works well. However, there will be certain cases where an
@@ -47,18 +30,15 @@ bool global_running;
 // may result in noticeable latency in your app.
 #define FRAME_COUNT 2
 
+bool global_running;
+SceneContext global_scene_ctx;
+
 struct ObjectConstantBuffer {
     DirectX::XMFLOAT4X4 world_view_proj;
     float padding[48];             // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
 struct D3DRenderContext {
-
-    // Display data
-    UINT width;
-    UINT height;
-    float aspect_ratio;
-
     // Pipeline stuff
     D3D12_VIEWPORT                  viewport;
     D3D12_RECT                      scissor_rect;
@@ -147,42 +127,23 @@ wait_for_gpu (D3DRenderContext * render_ctx) {
 
     return ret;
 }
-static DirectX::XMFLOAT4X4
-Identity4x4() {
-    static DirectX::XMFLOAT4X4 I(
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f);
-
-    return I;
-}
 static void
 update_constant_buffer(D3DRenderContext * render_ctx) {
 
     using namespace DirectX;
 
-    XMFLOAT4X4 identity = Identity4x4();
-    float theta = 1.5f * XM_PI;
-    float phi = XM_PIDIV4;
-    float radius = 5.0f;
     // Convert Spherical to Cartesian coordinates.
-    float x = radius * sinf(phi) * cosf(theta);
-    float z = radius * sinf(phi) * sinf(theta);
-    float y = radius * cosf(phi);
+    float x = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * cosf(global_scene_ctx.theta);
+    float z = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * sinf(global_scene_ctx.theta);
+    float y = global_scene_ctx.radius * cosf(global_scene_ctx.phi);
 
     // Build the view matrix.
     XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
     XMVECTOR target = XMVectorZero();
     XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
-    XMMATRIX view_temp = XMMatrixLookAtLH(pos, target, up);
-    XMFLOAT4X4 view = identity;
-    XMStoreFloat4x4(&view, view_temp);
-
-    XMMATRIX world = XMLoadFloat4x4(&identity);
-    XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * XM_PI, render_ctx->aspect_ratio, 1.0f, 1000.0f);
-    XMMATRIX world_view_proj = world * view_temp * proj;
+    global_scene_ctx.view = XMMatrixLookAtLH(pos, target, up);
+    XMMATRIX world_view_proj = global_scene_ctx.world * global_scene_ctx.view * global_scene_ctx.proj;
 
     DirectX::XMStoreFloat4x4(&render_ctx->constant_buffer_data.world_view_proj, DirectX::XMMatrixTranspose(world_view_proj));
 
@@ -447,26 +408,6 @@ generate_checkerboard_pattern (
     }
     return ret;
 }
-static LRESULT CALLBACK
-main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    LRESULT ret = {};
-    switch (uMsg) {
-        /* WM_PAIN is not handled for now ...
-        case WM_PAINT: {
-
-        } break;
-        */
-    case WM_CLOSE: {
-        global_running = false;
-        DestroyWindow(hwnd);
-        ret = 0;
-    } break;
-    default: {
-        ret = DefWindowProcA(hwnd, uMsg, wParam, lParam);
-    } break;
-    }
-    return ret;
-}
 static void
 copy_texture_data_to_texture_resource (
     D3DRenderContext * render_ctx,                      // destination resource
@@ -538,6 +479,41 @@ copy_texture_data_to_texture_resource (
 /*}*/
     HeapFree(GetProcessHeap(), 0, mem_ptr);
 }
+static LRESULT CALLBACK
+main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    LRESULT ret = {};
+    switch (uMsg) {
+        /* WM_PAIN is not handled for now ...
+        case WM_PAINT: {
+
+        } break;
+        */
+    case WM_LBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_RBUTTONDOWN: {
+        global_scene_ctx.mouse.x = GET_X_LPARAM(lParam);
+        global_scene_ctx.mouse.y = GET_Y_LPARAM(lParam);
+        SetCapture(hwnd);
+    } break;
+    case WM_LBUTTONUP:
+    case WM_MBUTTONUP:
+    case WM_RBUTTONUP: {
+        ReleaseCapture();
+    } break;
+    case WM_MOUSEMOVE: {
+        handle_mouse_move(&global_scene_ctx, wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+    } break;
+    case WM_CLOSE: {
+        global_running = false;
+        DestroyWindow(hwnd);
+        ret = 0;
+    } break;
+    default: {
+        ret = DefWindowProcA(hwnd, uMsg, wParam, lParam);
+    } break;
+    }
+    return ret;
+}
 INT WINAPI
 WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     // ========================================================================================================
@@ -575,18 +551,28 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
 
     // ========================================================================================================
 #pragma region Initialization
-    D3DRenderContext render_ctx = {.width = 1280, .height = 720};
-    render_ctx.aspect_ratio = (float)render_ctx.width / (float)render_ctx.height;
+    global_scene_ctx = {.width = 1280, .height = 720};
+    global_scene_ctx.theta = 1.5f * DirectX::XM_PI;
+    global_scene_ctx.phi = DirectX::XM_PIDIV4;
+    global_scene_ctx.radius = 5.0f;
+    global_scene_ctx.aspect_ratio = (float)global_scene_ctx.width / (float)global_scene_ctx.height;
+    global_scene_ctx.world = IdentityMat();
+    global_scene_ctx.view = IdentityMat();
+    global_scene_ctx.proj = DirectX::XMMatrixPerspectiveFovLH(0.25f * DirectX::XM_PI, global_scene_ctx.aspect_ratio, 1.0f, 1000.0f);;
+
+    D3DRenderContext render_ctx = {};
+
     render_ctx.viewport.TopLeftX = 0;
     render_ctx.viewport.TopLeftY = 0;
-    render_ctx.viewport.Width = (float)render_ctx.width;
-    render_ctx.viewport.Height = (float)render_ctx.height;
+    render_ctx.viewport.Width = (float)global_scene_ctx.width;
+    render_ctx.viewport.Height = (float)global_scene_ctx.height;
     render_ctx.viewport.MinDepth = 0.0f;
     render_ctx.viewport.MaxDepth = 1.0f;
     render_ctx.scissor_rect.left = 0;
     render_ctx.scissor_rect.top = 0;
-    render_ctx.scissor_rect.right = render_ctx.width;
-    render_ctx.scissor_rect.bottom = render_ctx.height;
+    render_ctx.scissor_rect.right = global_scene_ctx.width;
+    render_ctx.scissor_rect.bottom = global_scene_ctx.height;
+
     // Query Adapter (PhysicalDevice)
     IDXGIFactory * dxgi_factory = nullptr;
     CHECK_AND_FAIL(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgi_factory)));
@@ -623,8 +609,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     CHECK_AND_FAIL(res);
 
     DXGI_MODE_DESC backbuffer_desc = {};
-    backbuffer_desc.Width = render_ctx.width;
-    backbuffer_desc.Height = render_ctx.height;
+    backbuffer_desc.Width = global_scene_ctx.width;
+    backbuffer_desc.Height = global_scene_ctx.height;
     backbuffer_desc.Format = DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM;
 
     DXGI_SAMPLE_DESC sampler_desc = {};
