@@ -208,7 +208,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     // -- record command(s)
 
     // NOTE(omid): We can't use any "clear" method with bundles, so we use the command-list itself to clear rtv
-    float clear_colors [] = {0.5f, 0.4f, 0.2f, 1.0f};
+    float clear_colors [] = {0.2f, 0.3f, 0.5f, 1.0f};
     render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, clear_colors, 0, nullptr);
 
     // -- execute bundle commands
@@ -231,61 +231,66 @@ render_stuff (D3DRenderContext * render_ctx) {
 }
 static void
 create_box_vertices (TextuVertex out_vertices [], uint16_t out_indices []) {
+    // TODO(omid): Check the issue with uv values
+    // this is related to texture cell width?
+    float uv_min = 0.0f;
+    float uv_max = 0.6f;
+
     TextuVertex vtx1 = {};
     vtx1.position.x = -0.5f;
     vtx1.position.y = -0.5f;
     vtx1.position.z = -0.5f;
-    vtx1.uv.x = 0.0f;
-    vtx1.uv.y = 0.0f;
+    vtx1.uv.x = uv_max;
+    vtx1.uv.y = uv_max;
 
     TextuVertex vtx2 = {};
     vtx2.position.x = -0.5f;
     vtx2.position.y = +0.5f;
     vtx2.position.z = -0.5f;
-    vtx2.uv.x = 0.0f;
-    vtx2.uv.y = 0.5f;
+    vtx2.uv.x = uv_min;
+    vtx2.uv.y = uv_max;
 
     TextuVertex vtx3 = {};
     vtx3.position.x = +0.5f;
     vtx3.position.y = +0.5f;
     vtx3.position.z = -0.5f;
-    vtx3.uv.x = 0.5f;
-    vtx3.uv.y = 0.5f;
+    vtx3.uv.x = uv_min;
+    vtx3.uv.y = uv_min;
 
     TextuVertex vtx4 = {};
     vtx4.position.x = +0.5f;
     vtx4.position.y = -0.5f;
     vtx4.position.z = -0.5f;
-    vtx4.uv.x = 0.5f;
-    vtx4.uv.y = 0.0f;
+    vtx4.uv.x = uv_max;
+    vtx4.uv.y = uv_min;
 
     TextuVertex vtx5 = {};
     vtx5.position.x = -0.5f;
     vtx5.position.y = -0.5f;
     vtx5.position.z = +0.5f;
-    vtx5.uv.x = 10.0f;
-    vtx5.uv.y = 10.0f;
+    vtx5.uv.x = uv_max;
+    vtx5.uv.y = uv_max;
 
     TextuVertex vtx6 = {};
     vtx6.position.x = -0.5f;
     vtx6.position.y = +0.5f;
     vtx6.position.z = +0.5f;
-    vtx6.uv.x = 10.0f;
-    vtx6.uv.y = 10.0f;
+    vtx6.uv.x = uv_min;
+    vtx6.uv.y = uv_max;
 
     TextuVertex vtx7 = {};
     vtx7.position.x = +0.5f;
     vtx7.position.y = +0.5f;
     vtx7.position.z = +0.5f;
-    vtx7.uv.x = 10.5f;
-    vtx7.uv.y = 10.5f;
+    vtx7.uv.x = uv_min;
+    vtx7.uv.y = uv_min;
 
     TextuVertex vtx8 = {};
     vtx8.position.x = +0.5f;
     vtx8.position.y = -0.5f;
     vtx8.position.z = +0.5f;
-    vtx8.uv.x = 10.0f;
-    vtx8.uv.y = 10.0f;
+    vtx8.uv.x = uv_max;
+    vtx8.uv.y = uv_min;
 
     out_vertices[0] = vtx1;
     out_vertices[1] = vtx2;
