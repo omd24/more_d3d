@@ -77,14 +77,6 @@ struct D3DRenderContext {
     UINT64                          fence_value[FRAME_COUNT];
 
 };
-struct ColorVertex {
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT4 color;
-};
-struct TextuVertex {
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT2 uv;
-};
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx) {
     HRESULT ret = E_FAIL;
@@ -227,190 +219,6 @@ render_stuff (D3DRenderContext * render_ctx) {
 
     render_ctx->swapchain->Present(1 /*sync interval*/, 0 /*present flag*/);
 
-    return ret;
-}
-static void
-create_box_vertices (TextuVertex out_vertices [], uint16_t out_indices []) {
-    // TODO(omid): Check the issue with uv values
-    // this is related to texture cell width?
-    float uv_min = 0.0f;
-    float uv_max = 0.6f;
-
-    TextuVertex vtx1 = {};
-    vtx1.position.x = -0.5f;
-    vtx1.position.y = -0.5f;
-    vtx1.position.z = -0.5f;
-    vtx1.uv.x = uv_max;
-    vtx1.uv.y = uv_max;
-
-    TextuVertex vtx2 = {};
-    vtx2.position.x = -0.5f;
-    vtx2.position.y = +0.5f;
-    vtx2.position.z = -0.5f;
-    vtx2.uv.x = uv_min;
-    vtx2.uv.y = uv_max;
-
-    TextuVertex vtx3 = {};
-    vtx3.position.x = +0.5f;
-    vtx3.position.y = +0.5f;
-    vtx3.position.z = -0.5f;
-    vtx3.uv.x = uv_min;
-    vtx3.uv.y = uv_min;
-
-    TextuVertex vtx4 = {};
-    vtx4.position.x = +0.5f;
-    vtx4.position.y = -0.5f;
-    vtx4.position.z = -0.5f;
-    vtx4.uv.x = uv_max;
-    vtx4.uv.y = uv_min;
-
-    TextuVertex vtx5 = {};
-    vtx5.position.x = -0.5f;
-    vtx5.position.y = -0.5f;
-    vtx5.position.z = +0.5f;
-    vtx5.uv.x = uv_max;
-    vtx5.uv.y = uv_max;
-
-    TextuVertex vtx6 = {};
-    vtx6.position.x = -0.5f;
-    vtx6.position.y = +0.5f;
-    vtx6.position.z = +0.5f;
-    vtx6.uv.x = uv_min;
-    vtx6.uv.y = uv_max;
-
-    TextuVertex vtx7 = {};
-    vtx7.position.x = +0.5f;
-    vtx7.position.y = +0.5f;
-    vtx7.position.z = +0.5f;
-    vtx7.uv.x = uv_min;
-    vtx7.uv.y = uv_min;
-
-    TextuVertex vtx8 = {};
-    vtx8.position.x = +0.5f;
-    vtx8.position.y = -0.5f;
-    vtx8.position.z = +0.5f;
-    vtx8.uv.x = uv_max;
-    vtx8.uv.y = uv_min;
-
-    out_vertices[0] = vtx1;
-    out_vertices[1] = vtx2;
-    out_vertices[2] = vtx3;
-    out_vertices[3] = vtx4;
-    out_vertices[4] = vtx5;
-    out_vertices[5] = vtx6;
-    out_vertices[6] = vtx7;
-    out_vertices[7] = vtx8;
-
-    // front face
-    out_indices[0] = 0;
-    out_indices[1] = 1;
-    out_indices[2] = 2;
-    out_indices[3] = 0;
-    out_indices[4] = 2;
-    out_indices[5] = 3;
-
-    // back face
-    out_indices[6] = 4;
-    out_indices[7] = 6;
-    out_indices[8] = 5;
-    out_indices[9] = 4;
-    out_indices[10] = 7;
-    out_indices[11] = 6;
-
-    // left face
-    out_indices[12] = 4;
-    out_indices[13] = 5;
-    out_indices[14] = 1;
-    out_indices[15] = 4;
-    out_indices[16] = 1;
-    out_indices[17] = 0;
-
-    // right face
-    out_indices[18] = 3;
-    out_indices[19] = 2;
-    out_indices[20] = 6;
-    out_indices[21] = 3;
-    out_indices[22] = 6;
-    out_indices[23] = 7;
-
-    // top face
-    out_indices[24] = 1;
-    out_indices[25] = 5;
-    out_indices[26] = 6;
-    out_indices[27] = 1;
-    out_indices[28] = 6;
-    out_indices[29] = 2;
-
-    // bottom face
-    out_indices[30] = 4;
-    out_indices[31] = 0;
-    out_indices[32] = 3;
-    out_indices[33] = 4;
-    out_indices[34] = 3;
-    out_indices[35] = 7;
-
-    //{
-    //    // front face
-    //    0, 1, 2,
-    //    0, 2, 3,
-
-    //    // back face
-    //    4, 6, 5,
-    //    4, 7, 6,
-
-    //    // left face
-    //    4, 5, 1,
-    //    4, 1, 0,
-
-    //    // right face
-    //    3, 2, 6,
-    //    3, 6, 7,
-
-    //    // top face
-    //    1, 5, 6,
-    //    1, 6, 2,
-
-    //    // bottom face
-    //    4, 0, 3,
-    //    4, 3, 7
-    //}
-
-}
-static bool
-generate_checkerboard_pattern (
-    uint32_t texture_size, uint32_t bytes_per_pixel,
-    uint32_t row_pitch, uint32_t cell_width,
-    uint32_t cell_height, uint8_t * texture_ptr
-) {
-    bool ret = false;
-    if (texture_ptr) {
-        for (uint32_t i = 0; i < texture_size; i += bytes_per_pixel) {
-
-            uint32_t x = i % row_pitch;         // row index
-            uint32_t y = i / row_pitch;         // column index
-
-            // -- cell indices (xx, yy)
-            uint32_t xx = x / cell_width;
-            uint32_t yy = y / cell_height;
-
-            // -- color cell
-            if (xx % 2 == yy % 2) {
-                // white
-                texture_ptr[i] = 0xdd;          // R
-                texture_ptr[i + 1] = 0xee;      // G
-                texture_ptr[i + 2] = 0xff;      // B
-                texture_ptr[i + 3] = 0xff;      // A
-
-            } else {
-                // black
-                texture_ptr[i] = 0x04;          // R
-                texture_ptr[i + 1] = 0x04;      // G
-                texture_ptr[i + 2] = 0x04;      // B
-                texture_ptr[i + 3] = 0xff;      // A
-            }
-        }
-        ret = true;
-    }
     return ret;
 }
 static void
@@ -763,12 +571,12 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     root_signature_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
     root_signature_desc.Desc_1_1 = root_desc1;
 
-    ID3DBlob * signature = nullptr;
+    ID3DBlob * signature_blob = nullptr;
     ID3DBlob * signature_error_blob = nullptr;
 
-    CHECK_AND_FAIL(D3D12SerializeVersionedRootSignature(&root_signature_desc, &signature, &signature_error_blob));
+    CHECK_AND_FAIL(D3D12SerializeVersionedRootSignature(&root_signature_desc, &signature_blob, &signature_error_blob));
 
-    CHECK_AND_FAIL(render_ctx.device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&render_ctx.root_signature)));
+    CHECK_AND_FAIL(render_ctx.device->CreateRootSignature(0, signature_blob->GetBufferPointer(), signature_blob->GetBufferSize(), IID_PPV_ARGS(&render_ctx.root_signature)));
 
 #pragma endregion Root Signature
 
@@ -833,7 +641,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     input_desc[1] = {};
     input_desc[1].SemanticName = "TEXCOORD";
     input_desc[1].Format = DXGI_FORMAT_R32G32_FLOAT;
-    input_desc[1].AlignedByteOffset = 12; // bc of the position?
+    input_desc[1].AlignedByteOffset = 12; // bc of the position byte-size
     input_desc[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 
     // Create pipeline state object
@@ -887,6 +695,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     CHECK_AND_FAIL(render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, render_ctx.cmd_allocator[render_ctx.frame_index], render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list)));
 #pragma endregion PSO Creation
 
+// TODO(omid): VB and IB should also use a default_heap (not upload heap), similar to the texture. 
 #pragma region Create Vertex Buffer and Index Buffer
     // vertex data and indices
     TextuVertex vertices[8] = {};
@@ -1109,12 +918,10 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
         nullptr,
         IID_PPV_ARGS(&render_ctx.constant_buffer)));
 
-
+    // Describe and create a constant buffer view.
     render_ctx.srv_cbv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     D3D12_CPU_DESCRIPTOR_HANDLE cbv_cpu_handle = {};
     cbv_cpu_handle.ptr = render_ctx.srv_cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + (UINT64)render_ctx.srv_cbv_descriptor_size;
-
-    // Describe and create a constant buffer view.
     D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
     cbv_desc.BufferLocation = render_ctx.constant_buffer->GetGPUVirtualAddress();
     cbv_desc.SizeInBytes = cb_size;
@@ -1209,7 +1016,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     render_ctx.root_signature->Release();
     if (signature_error_blob)
         signature_error_blob->Release();
-    signature->Release();
+    signature_blob->Release();
 
     render_ctx.bundle_allocator->Release();
 
