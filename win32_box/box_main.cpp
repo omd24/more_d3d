@@ -133,11 +133,10 @@ update_constant_buffer(D3DRenderContext * render_ctx) {
     XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
     XMVECTOR target = XMVectorZero();
     XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
     global_scene_ctx.view = XMMatrixLookAtLH(pos, target, up);
-    XMMATRIX world_view_proj = global_scene_ctx.world * global_scene_ctx.view * global_scene_ctx.proj;
 
-    DirectX::XMStoreFloat4x4(&render_ctx->constant_buffer_data.world_view_proj, DirectX::XMMatrixTranspose(world_view_proj));
+    XMMATRIX world_view_proj = global_scene_ctx.world * global_scene_ctx.view * global_scene_ctx.proj;
+    XMStoreFloat4x4(&render_ctx->constant_buffer_data.world_view_proj, XMMatrixTranspose(world_view_proj));
 
     memcpy(render_ctx->cbv_data_begin_ptr, &render_ctx->constant_buffer_data, sizeof(render_ctx->constant_buffer_data));
 }

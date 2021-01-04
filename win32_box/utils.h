@@ -24,7 +24,7 @@ struct TextuVertex {
     DirectX::XMFLOAT2 uv;
 };
 struct SceneContext {
-    // camera settings
+    // camera settings (spherical coordinate)
     float theta;
     float phi;
     float radius;
@@ -32,7 +32,7 @@ struct SceneContext {
     // mouse position
     POINT mouse;
 
-    // projection matrix
+    // world view projection matrices
     DirectX::XMMATRIX world;
     DirectX::XMMATRIX view;
     DirectX::XMMATRIX proj;
