@@ -14,7 +14,7 @@ Texture2D global_texture : register(t0);
 SamplerState global_sampler : register(s0);
 
 PixelShaderInput
-VertexShader_Main (float3 p : POSITION, float4 uv : TEXCOORD) {
+VertexShader_Main (float3 p : POSITION, float2 uv : TEXCOORD) {
     PixelShaderInput result;
     //result.position = p + offset;       // apply offset from cbuffer
     result.position = mul(float4(p, 1.0f), global_world_view_proj);
