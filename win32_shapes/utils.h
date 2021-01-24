@@ -1,3 +1,12 @@
+/* ===========================================================
+   #File: utils.cpp #
+   #Date: 25 Jan 2021 #
+   #Revision: 1.0 #
+   #Creator: Omid Miresmaeili #
+   #Description: renderer utility tools #
+   #Notice: (C) Copyright 2021 by Omid. All Rights Reserved. #
+   =========================================================== */
+
 #pragma once
 
 #include "headers/common.h"
@@ -15,6 +24,78 @@
 
 #define ARRAY_COUNT(arr)                sizeof(arr)/sizeof(arr[0])
 #define CLAMP_VALUE(val, lb, ub)        val < lb ? lb : (val > ub ? ub : val); 
+
+
+using namespace DirectX;
+
+static XMFLOAT4X4
+Identity4x4() {
+    static XMFLOAT4X4 I(
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f);
+
+    return I;
+}
+static XMMATRIX
+IdentityMat() {
+    static XMMATRIX I(
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f);
+
+    return I;
+}
+
+struct ObjectConstantBuffer {
+    XMFLOAT4X4 world_view_proj;
+    float padding[48];             // Padding so the constant buffer is 256-byte aligned
+};
+static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
+struct PassConstantBuffer {
+    XMFLOAT4X4 view;
+    XMFLOAT4X4 inverse_view;
+    XMFLOAT4X4 proj;
+    XMFLOAT4X4 inverse_proj;
+    XMFLOAT4X4 view_proj;
+    XMFLOAT4X4 inverse_view_proj;
+    XMFLOAT3 eye_posw;
+    float cbuffer_per_obj_pad1;
+    XMFLOAT2 render_target_size;
+    XMFLOAT2 inverse_render_target_size;
+    float nearz;
+    float farz;
+    float total_time;
+    float delta_time;
+    float padding[20];             // Padding so the constant buffer is 256-byte aligned
+};
+static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
+struct RenderItem {
+    // World matrix of the shape that describes the object's local space
+    // relative to the world space, which defines the position, orientation,
+    // and scale of the object in the world.
+    XMFLOAT4X4 world;
+
+    // Dirty flag indicating the object data has changed and we need to update the constant buffer.
+    // Because we have an object cbuffer for each FrameResource, we have to apply the
+    // update to each FrameResource.  Thus, when we modify obect data we should set 
+    // NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
+    int count_frames_dirty;
+
+    // Index into GPU constant buffer corresponding to the ObjectCB for this render item.
+    UINT obj_cbuffer_index;
+
+    // TODO(omid): add mesh/geometry data 
+
+    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType;
+
+    // DrawIndexedInstanced parameters.
+    UINT index_count;
+    UINT start_index_loc;
+    int base_vertex_loc;
+};
 
 struct TextuVertex {
     DirectX::XMFLOAT3 position;
@@ -39,26 +120,7 @@ struct SceneContext {
     UINT height;
     float aspect_ratio;
 };
-static DirectX::XMFLOAT4X4
-Identity4x4() {
-    static DirectX::XMFLOAT4X4 I(
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f);
 
-    return I;
-}
-static DirectX::XMMATRIX
-IdentityMat() {
-    static DirectX::XMMATRIX I(
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f);
-
-    return I;
-}
 static void
 handle_mouse_move(SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
     if ((wParam & MK_LBUTTON) != 0) {

@@ -37,11 +37,6 @@
 bool global_running;
 SceneContext global_scene_ctx;
 
-struct ObjectConstantBuffer {
-    DirectX::XMFLOAT4X4 world_view_proj;
-    float padding[48];             // Padding so the constant buffer is 256-byte aligned
-};
-static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
 struct D3DRenderContext {
     // Pipeline stuff
     D3D12_VIEWPORT                  viewport;
