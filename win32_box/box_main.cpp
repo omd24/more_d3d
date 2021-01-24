@@ -181,7 +181,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->SetDescriptorHeaps(ARRAY_COUNT(heaps), heaps);
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(0, render_ctx->srv_cbv_heap->GetGPUDescriptorHandleForHeapStart());
 
-    SIMPLE_ASSERT(render_ctx->srv_cbv_descriptor_size > 0);
+    SIMPLE_ASSERT(render_ctx->srv_cbv_descriptor_size > 0, "invalid descriptro size");
     D3D12_GPU_DESCRIPTOR_HANDLE cbv_gpu_handle = {};
     cbv_gpu_handle.ptr = render_ctx->srv_cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + (UINT64)render_ctx->srv_cbv_descriptor_size;
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, cbv_gpu_handle);
@@ -268,7 +268,7 @@ copy_texture_data_to_texture_resource (
     texture_upload_heap->Unmap(0, nullptr);
 
     // currently this function doesn't work with buffer resources
-    SIMPLE_ASSERT(textu_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+    SIMPLE_ASSERT(textu_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER, "invalid texture dimension");
 
     /*if (textu_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
         render_ctx->direct_cmd_list->CopyBufferRegion(render_ctx->texture, 0, texture_upload_heap, layouts[0].Offset, layouts[0].Footprint.Width);
@@ -336,7 +336,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     wc.hInstance = hInstance;
     wc.lpszClassName = "d3d12_win32";
 
-    SIMPLE_ASSERT(RegisterClassA(&wc));
+    SIMPLE_ASSERT(RegisterClassA(&wc), "could not register window class");
 
     HWND hwnd = CreateWindowExA(
         0,                                      // Optional window styles.
@@ -346,7 +346,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
     );
-    SIMPLE_ASSERT(hwnd);
+    SIMPLE_ASSERT(hwnd, "could not create window");
 #pragma endregion Windows_Setup
 
     // ========================================================================================================
@@ -624,8 +624,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
             // Handle compilation error...
         }
     }
-    SIMPLE_ASSERT(vertex_shader_code);
-    SIMPLE_ASSERT(pixel_shader_code);
+    SIMPLE_ASSERT(vertex_shader_code, "invalid vertex shader code");
+    SIMPLE_ASSERT(pixel_shader_code, "invalid fragment shader code");
 
 #pragma endregion Compile Shaders
 

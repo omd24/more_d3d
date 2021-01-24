@@ -20,6 +20,10 @@
 #define ENABLE_DEBUG_LAYER 0
 #endif
 
+// TODO(omid): find a better way to disable warnings!
+#pragma warning (disable: 28182)    // pointer can be NULL.
+#pragma warning (disable: 6011)     // dereferencing a potentially null pointer
+
 // Currently we overload the meaning of FrameCount to mean both the maximum
 // number of frames that will be queued to the GPU at a time, as well as the number
 // of back buffers in the DXGI swap chain. For the majority of applications, this
@@ -181,7 +185,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->SetDescriptorHeaps(ARRAY_COUNT(heaps), heaps);
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(0, render_ctx->srv_cbv_heap->GetGPUDescriptorHandleForHeapStart());
 
-    SIMPLE_ASSERT(render_ctx->srv_cbv_descriptor_size > 0);
+    SIMPLE_ASSERT(render_ctx->srv_cbv_descriptor_size > 0, "invalid descriptor size");
     D3D12_GPU_DESCRIPTOR_HANDLE cbv_gpu_handle = {};
     cbv_gpu_handle.ptr = render_ctx->srv_cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + (UINT64)render_ctx->srv_cbv_descriptor_size;
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, cbv_gpu_handle);
@@ -268,7 +272,7 @@ copy_texture_data_to_texture_resource (
     texture_upload_heap->Unmap(0, nullptr);
 
     // currently this function doesn't work with buffer resources
-    SIMPLE_ASSERT(textu_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+    SIMPLE_ASSERT(textu_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER, "invalid texture");
 
     /*if (textu_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
         render_ctx->direct_cmd_list->CopyBufferRegion(render_ctx->texture, 0, texture_upload_heap, layouts[0].Offset, layouts[0].Footprint.Width);
@@ -327,7 +331,7 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     return ret;
 }
 INT WINAPI
-WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
+WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // ========================================================================================================
 #pragma region Windows_Setup
     WNDCLASSA wc = {};
@@ -336,7 +340,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     wc.hInstance = hInstance;
     wc.lpszClassName = "d3d12_win32";
 
-    SIMPLE_ASSERT(RegisterClassA(&wc));
+    SIMPLE_ASSERT(RegisterClassA(&wc), "could not register window class");
 
     HWND hwnd = CreateWindowExA(
         0,                                      // Optional window styles.
@@ -346,7 +350,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
     );
-    SIMPLE_ASSERT(hwnd);
+    SIMPLE_ASSERT(hwnd, "could not create window");
 #pragma endregion Windows_Setup
 
     // ========================================================================================================
@@ -624,8 +628,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
             // Handle compilation error...
         }
     }
-    SIMPLE_ASSERT(vertex_shader_code);
-    SIMPLE_ASSERT(pixel_shader_code);
+    SIMPLE_ASSERT(vertex_shader_code, "invalid shader");
+    SIMPLE_ASSERT(pixel_shader_code, "invalid shader");
 
 #pragma endregion Compile Shaders
 
@@ -851,8 +855,10 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
     uint32_t cell_width = (texture_width >> 3) * bytes_per_pixel;           // actual "cell_width" muliplied by "bytes_per_pixel"
     uint32_t cell_height = (texture_height >> 3);
     uint32_t texture_size = texture_width * texture_height * bytes_per_pixel;
-    // TODO(omid): perhaps create texture on stack?
-    uint8_t * texture_ptr = reinterpret_cast<uint8_t *>(::malloc(texture_size));
+    
+    uint8_t * texture_ptr = nullptr;
+    DYN_ARRAY_INIT(uint8_t, texture_ptr);
+    DYN_ARRAY_EXPAND(uint8_t, texture_ptr, texture_size);
     // -- create a simple yellow and black checkerboard pattern
     generate_checkerboard_pattern(texture_size, bytes_per_pixel, row_pitch, cell_width, cell_height, texture_ptr);
 
@@ -999,7 +1005,9 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
 
     texture_upload_heap->Release();
 
-    ::free(texture_ptr);
+    ::printf("length = %zu\n", DYN_ARRAY_LENGTH(texture_ptr));
+    ::printf("capacity = %zu\n", DYN_ARRAY_CAPACITY(texture_ptr));
+    DYN_ARRAY_DEINIT(texture_ptr);
 
     render_ctx.constant_buffer->Release();
     render_ctx.texture->Release();

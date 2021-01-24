@@ -1,9 +1,6 @@
 #pragma once
 
-#include <windows.h>
-#include <directxmath.h>
-#include <windowsx.h>
-#include <stdio.h>
+#include "headers/common.h"
 
 #define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
 //#define SUCCEEDED_OPERATION(hr)   (((HRESULT)(hr)) == S_OK)
@@ -16,7 +13,6 @@
     }                                               \
 
 #define ARRAY_COUNT(arr)                sizeof(arr)/sizeof(arr[0])
-#define SIMPLE_ASSERT(exp) if(!(exp))   {*(int *)0 = 0;}
 #define CLAMP_VALUE(val, lb, ub)        val < lb ? lb : (val > ub ? ub : val); 
 
 struct TextuVertex {
