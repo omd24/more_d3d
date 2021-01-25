@@ -72,6 +72,60 @@ struct PassConstantBuffer {
     float padding[20];             // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
+
+static void
+create_upload_buffer (ID3D12Device * device, ID3D12Resource * upload_buffer, BYTE * mapped_data, size_t size, UINT count) {
+
+    D3D12_HEAP_PROPERTIES heap_props = {};
+    heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    heap_props.CreationNodeMask = 1U;
+    heap_props.VisibleNodeMask = 1U;
+
+    D3D12_RESOURCE_DESC rsc_desc = {};
+    rsc_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
+    rsc_desc.Alignment = 0;
+    rsc_desc.Width = size * count;
+    rsc_desc.Height = 1;
+    rsc_desc.DepthOrArraySize = 1;
+    rsc_desc.MipLevels = 1;
+    rsc_desc.Format = DXGI_FORMAT_UNKNOWN;
+    rsc_desc.SampleDesc.Count = 1;
+    rsc_desc.SampleDesc.Quality = 0;
+    rsc_desc.Layout = D3D12_TEXTURE_LAYOUT::D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    rsc_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    CHECK_AND_FAIL(device->CreateCommittedResource(
+        &heap_props,
+        D3D12_HEAP_FLAG_NONE,
+        &rsc_desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&upload_buffer)));
+
+    CHECK_AND_FAIL(upload_buffer->Map(0, nullptr, reinterpret_cast<void**>(&mapped_data)));
+
+    // We do not need to unmap until we are done with the resource.  However, we must not write to
+    // the resource while it is in use by the GPU (so we must use synchronization techniques).
+}
+
+
+// FrameResource stores the resources needed for the CPU to build the command lists for a frame.
+struct FrameResource {
+    // We cannot reset the allocator until the GPU is done processing the commands.
+    // So each frame needs their own allocator.
+    ID3D12CommandAllocator * cmd_list_alloc;
+
+    // We cannot update a cbuffer until the GPU is done processing the commands
+    // that reference it.  So each frame needs their own cbuffers.
+    PassConstantBuffer * pass_cb;
+    ObjectConstantBuffer * object_cb;
+
+    // Fence value to mark commands up to this fence point.  This lets us
+    // check if these frame resources are still in use by the GPU.
+    UINT64 fence = 0;
+};
 struct RenderItem {
     // World matrix of the shape that describes the object's local space
     // relative to the world space, which defines the position, orientation,
