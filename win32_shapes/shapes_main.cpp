@@ -702,37 +702,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     size_t vb_size = sizeof(vertices);
     size_t ib_size = sizeof(indices);
 
-    D3D12_HEAP_PROPERTIES vb_heap_props = {};
-    vb_heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
-    vb_heap_props.CreationNodeMask = 1U;
-    vb_heap_props.VisibleNodeMask = 1U;
-
-    D3D12_RESOURCE_DESC vb_desc = {};
-    vb_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
-    vb_desc.Alignment = 0;
-    vb_desc.Width = vb_size;
-    vb_desc.Height = 1;
-    vb_desc.DepthOrArraySize = 1;
-    vb_desc.MipLevels = 1;
-    vb_desc.Format = DXGI_FORMAT_UNKNOWN;
-    vb_desc.SampleDesc.Count = 1;
-    vb_desc.SampleDesc.Quality = 0;
-    vb_desc.Layout = D3D12_TEXTURE_LAYOUT::D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    vb_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    CHECK_AND_FAIL(render_ctx.device->CreateCommittedResource(
-        &vb_heap_props, D3D12_HEAP_FLAG_NONE, &vb_desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr, IID_PPV_ARGS(&render_ctx.vertex_buffer)
-    ));
-
-    // Copy vertex data to vertex buffer
+    // Create VB as an upload buffer
     uint8_t * vertex_data = nullptr;
-    D3D12_RANGE vb_mem_range = {};
-    vb_mem_range.Begin = vb_mem_range.End = 0; // We do not intend to read from this resource on the CPU.
-    render_ctx.vertex_buffer->Map(0, &vb_mem_range, reinterpret_cast<void **>(&vertex_data));
+    create_upload_buffer(render_ctx.device, vb_size, &vertex_data, &render_ctx.vertex_buffer);
+    // Copy vertex data to vertex buffer
     memcpy(vertex_data, vertices, vb_size);
-    render_ctx.vertex_buffer->Unmap(0, nullptr /*aka full-range*/);
+    // NOTE(omid): We do not need to unmap until we are done with the resource.
+    //render_ctx.vertex_buffer->Unmap(0, nullptr /*aka full-range*/);
 
     // Initialize the vertex buffer view (vbv)
     render_ctx.vb_view.BufferLocation = render_ctx.vertex_buffer->GetGPUVirtualAddress();
@@ -740,39 +716,16 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.vb_view.SizeInBytes = (UINT)vb_size;
 
     // --repeat for index buffer...
-    D3D12_HEAP_PROPERTIES ib_heap_prop = {};
-    ib_heap_prop.Type = D3D12_HEAP_TYPE_UPLOAD;
-    ib_heap_prop.CreationNodeMask = 1U;
-    ib_heap_prop.VisibleNodeMask = 1U;
 
-    D3D12_RESOURCE_DESC ib_desc = {};
-    ib_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
-    ib_desc.Alignment = 0;
-    ib_desc.Width = ib_size;
-    ib_desc.Height = 1;
-    ib_desc.DepthOrArraySize = 1;
-    ib_desc.MipLevels = 1;
-    ib_desc.Format = DXGI_FORMAT_UNKNOWN;
-    ib_desc.SampleDesc.Count = 1;
-    ib_desc.SampleDesc.Quality = 0;
-    ib_desc.Layout = D3D12_TEXTURE_LAYOUT::D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    ib_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    CHECK_AND_FAIL(render_ctx.device->CreateCommittedResource(
-        &ib_heap_prop, D3D12_HEAP_FLAG_NONE, &ib_desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr, IID_PPV_ARGS(&render_ctx.index_buffer)
-    ));
-
-    // Copy vertex data to vertex buffer
+    // Create IB as an upload buffer
     uint8_t * indices_data = nullptr;
-    D3D12_RANGE ib_mem_range = {};
-    ib_mem_range.Begin = ib_mem_range.End = 0; // We do not intend to read from this resource on the CPU.
-    render_ctx.index_buffer->Map(0, &ib_mem_range, reinterpret_cast<void **>(&indices_data));
+    create_upload_buffer(render_ctx.device, ib_size, &indices_data, &render_ctx.index_buffer);
+    // Copy index data to index buffer
     memcpy(indices_data, indices, ib_size);
-    render_ctx.index_buffer->Unmap(0, nullptr /*aka full-range*/);
+    // NOTE(omid): We do not need to unmap until we are done with the resource.
+    //render_ctx.index_buffer->Unmap(0, nullptr /*aka full-range*/);
 
-    // Initialize the vertex buffer view (vbv)
+    // Initialize the ib buffer view (ibv)
     render_ctx.ib_view.BufferLocation = render_ctx.index_buffer->GetGPUVirtualAddress();
     render_ctx.ib_view.Format = DXGI_FORMAT_R16_UINT;
     render_ctx.ib_view.SizeInBytes = (UINT)ib_size;

@@ -74,7 +74,7 @@ struct PassConstantBuffer {
 static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
 
 static void
-create_upload_buffer (ID3D12Device * device, ID3D12Resource * upload_buffer, BYTE * mapped_data, size_t size, UINT count) {
+create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_data, ID3D12Resource ** out_upload_buffer) {
 
     D3D12_HEAP_PROPERTIES heap_props = {};
     heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -86,7 +86,7 @@ create_upload_buffer (ID3D12Device * device, ID3D12Resource * upload_buffer, BYT
     D3D12_RESOURCE_DESC rsc_desc = {};
     rsc_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
     rsc_desc.Alignment = 0;
-    rsc_desc.Width = size * count;
+    rsc_desc.Width = total_size;
     rsc_desc.Height = 1;
     rsc_desc.DepthOrArraySize = 1;
     rsc_desc.MipLevels = 1;
@@ -102,9 +102,12 @@ create_upload_buffer (ID3D12Device * device, ID3D12Resource * upload_buffer, BYT
         &rsc_desc,
         D3D12_RESOURCE_STATE_GENERIC_READ,
         nullptr,
-        IID_PPV_ARGS(&upload_buffer)));
+        IID_PPV_ARGS(out_upload_buffer)));
 
-    CHECK_AND_FAIL(upload_buffer->Map(0, nullptr, reinterpret_cast<void**>(&mapped_data)));
+    D3D12_RANGE mem_range = {};
+    mem_range.Begin = 0;
+    mem_range.End = 0;
+    CHECK_AND_FAIL((*out_upload_buffer)->Map(0, &mem_range, reinterpret_cast<void**>(mapped_data)));
 
     // We do not need to unmap until we are done with the resource.  However, we must not write to
     // the resource while it is in use by the GPU (so we must use synchronization techniques).
