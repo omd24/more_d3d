@@ -32,7 +32,9 @@
 // available.
 // It should be noted that excessive buffering of frames dependent on user input
 // may result in noticeable latency in your app.
-#define FRAME_COUNT 2
+#define FRAME_COUNT     3
+// Need a FrameResource for each frame
+#define NUM_FRAME_RESOURCES         FRAME_COUNT
 
 bool global_running;
 SceneContext global_scene_ctx;
@@ -44,8 +46,8 @@ struct D3DRenderContext {
     IDXGISwapChain3 *               swapchain3;
     IDXGISwapChain *                swapchain;
     ID3D12Device *                  device;
-    ID3D12Resource *                render_targets[FRAME_COUNT];
-    ID3D12CommandAllocator *        cmd_allocator[FRAME_COUNT];
+    //ID3D12Resource *                render_targets[FRAME_COUNT];
+    //ID3D12CommandAllocator *        cmd_allocator[FRAME_COUNT];
     ID3D12CommandAllocator *        bundle_allocator;
     ID3D12CommandQueue *            cmd_queue;
     ID3D12RootSignature *           root_signature;
@@ -74,6 +76,12 @@ struct D3DRenderContext {
     HANDLE                          fence_event;
     ID3D12Fence *                   fence;
     UINT64                          fence_value[FRAME_COUNT];
+
+    FrameResource frame_resources[NUM_FRAME_RESOURCES];
+    // TODO(omid): perhaps allocate FrameResources on heap? 
+    // FrameResource * frame_resources[NUM_FRAME_RESOURCES];
+    FrameResource * current_frame_resource;
+    int current_frame_resource_index;
 
 };
 static HRESULT
@@ -154,6 +162,7 @@ static HRESULT
 render_stuff (D3DRenderContext * render_ctx) {
 
     HRESULT ret = E_FAIL;
+    UINT frame_index = render_ctx->frame_index;
 
     // Populate command list
 
@@ -162,12 +171,12 @@ render_stuff (D3DRenderContext * render_ctx) {
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
-    CHECK_AND_FAIL(render_ctx->cmd_allocator[render_ctx->frame_index]->Reset());
+    render_ctx->frame_resources[frame_index].cmd_list_alloc->Reset();
 
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    ret = render_ctx->direct_cmd_list->Reset(render_ctx->cmd_allocator[render_ctx->frame_index], render_ctx->pso);
+    ret = render_ctx->direct_cmd_list->Reset(render_ctx->frame_resources[frame_index].cmd_list_alloc, render_ctx->pso);
     CHECK_AND_FAIL(ret);
 
     // -- set root_signature, viewport and scissor
@@ -186,7 +195,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, cbv_gpu_handle);
 
     // -- indicate that the backbuffer will be used as the render target
-    D3D12_RESOURCE_BARRIER barrier1 = create_barrier(render_ctx->render_targets[render_ctx->frame_index], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    D3D12_RESOURCE_BARRIER barrier1 = create_barrier(render_ctx->frame_resources[frame_index].render_target, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier1);
 
     // -- get CPU descriptor handle that represents the start of the rtv heap
@@ -205,7 +214,7 @@ render_stuff (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->ExecuteBundle(render_ctx->bundle);
 
     // -- indicate that the backbuffer will now be used to present
-    D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->render_targets[render_ctx->frame_index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+    D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->frame_resources[frame_index].render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier2);
 
@@ -476,14 +485,14 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.rtv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx.rtv_heap->GetCPUDescriptorHandleForHeapStart();
     for (UINT i = 0; i < FRAME_COUNT; ++i) {
-        CHECK_AND_FAIL(render_ctx.swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx.render_targets[i])));
+        CHECK_AND_FAIL(render_ctx.swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx.frame_resources[i].render_target)));
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = {};
         cpu_handle.ptr = rtv_handle_start.ptr + ((UINT64)i * render_ctx.rtv_descriptor_size);
         // -- create a rtv for each frame
-        render_ctx.device->CreateRenderTargetView(render_ctx.render_targets[i], nullptr, cpu_handle);
+        render_ctx.device->CreateRenderTargetView(render_ctx.frame_resources[i].render_target, nullptr, cpu_handle);
         // -- create a cmd-allocator for each frame
-        res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.cmd_allocator[i]));
+        res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.frame_resources[i].cmd_list_alloc));
 
     }
 
@@ -690,7 +699,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     CHECK_AND_FAIL(render_ctx.device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx.pso)));
     // Create command list
-    CHECK_AND_FAIL(render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, render_ctx.cmd_allocator[render_ctx.frame_index], render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list)));
+    ID3D12CommandAllocator * current_alloc = render_ctx.frame_resources[render_ctx.frame_index].cmd_list_alloc;
+    if (current_alloc) {
+        render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, current_alloc, render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list));
+    }
 #pragma endregion PSO Creation
 
 // TODO(omid): VB and IB should also use a default_heap (not upload heap), similar to the texture. 
@@ -707,8 +719,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     create_upload_buffer(render_ctx.device, vb_size, &vertex_data, &render_ctx.vertex_buffer);
     // Copy vertex data to vertex buffer
     memcpy(vertex_data, vertices, vb_size);
-    // NOTE(omid): We do not need to unmap until we are done with the resource.
-    //render_ctx.vertex_buffer->Unmap(0, nullptr /*aka full-range*/);
 
     // Initialize the vertex buffer view (vbv)
     render_ctx.vb_view.BufferLocation = render_ctx.vertex_buffer->GetGPUVirtualAddress();
@@ -722,8 +732,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     create_upload_buffer(render_ctx.device, ib_size, &indices_data, &render_ctx.index_buffer);
     // Copy index data to index buffer
     memcpy(indices_data, indices, ib_size);
-    // NOTE(omid): We do not need to unmap until we are done with the resource.
-    //render_ctx.index_buffer->Unmap(0, nullptr /*aka full-range*/);
 
     // Initialize the ib buffer view (ibv)
     render_ctx.ib_view.BufferLocation = render_ctx.index_buffer->GetGPUVirtualAddress();
@@ -843,33 +851,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.cmd_queue->ExecuteCommandLists(ARRAY_COUNT(cmd_lists), cmd_lists);
 
 #pragma region Create Constant Buffer
+    // Create constant buffer as upload buffer
     const UINT cb_size = sizeof(ObjectConstantBuffer);    // CB size is required to be 256-byte aligned.
-
-    D3D12_HEAP_PROPERTIES cbuffer_heap_props = {};
-    cbuffer_heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
-    cbuffer_heap_props.CreationNodeMask = 1U;
-    cbuffer_heap_props.VisibleNodeMask = 1U;
-
-    D3D12_RESOURCE_DESC cb_desc = {};
-    cb_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
-    cb_desc.Alignment = 0;
-    cb_desc.Width = cb_size;
-    cb_desc.Height = 1;
-    cb_desc.DepthOrArraySize = 1;
-    cb_desc.MipLevels = 1;
-    cb_desc.Format = DXGI_FORMAT_UNKNOWN;
-    cb_desc.SampleDesc.Count = 1;
-    cb_desc.SampleDesc.Quality = 0;
-    cb_desc.Layout = D3D12_TEXTURE_LAYOUT::D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    cb_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    CHECK_AND_FAIL(render_ctx.device->CreateCommittedResource(
-        &cbuffer_heap_props,
-        D3D12_HEAP_FLAG_NONE,
-        &cb_desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&render_ctx.constant_buffer)));
+    create_upload_buffer(render_ctx.device, cb_size, &render_ctx.cbv_data_begin_ptr, &render_ctx.constant_buffer);
 
     // Describe and create a constant buffer view.
     render_ctx.srv_cbv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -880,11 +864,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     cbv_desc.SizeInBytes = cb_size;
     render_ctx.device->CreateConstantBufferView(&cbv_desc, cbv_cpu_handle);
 
-    // Map and initialize the constant buffer. We don't unmap this until the
-    // app closes. Keeping things mapped for the lifetime of the resource is okay.
-    D3D12_RANGE cb_mem_range = {};
-    cb_mem_range.Begin = cb_mem_range.End = 0; // We do not intend to read from this resource on the CPU.
-    CHECK_AND_FAIL(render_ctx.constant_buffer->Map(0, &cb_mem_range, reinterpret_cast<void**>(&render_ctx.cbv_data_begin_ptr)));
+    // Initialize cb data
     ::memcpy(render_ctx.cbv_data_begin_ptr, &render_ctx.constant_buffer_data, sizeof(render_ctx.constant_buffer_data));
 
 #pragma endregion Create Constant Buffer
@@ -957,9 +937,15 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     ::printf("capacity = %zu\n", DYN_ARRAY_CAPACITY(texture_ptr));
     DYN_ARRAY_DEINIT(texture_ptr);
 
+    render_ctx.constant_buffer->Unmap(0, nullptr);
     render_ctx.constant_buffer->Release();
+
     render_ctx.texture->Release();
+    
+    render_ctx.index_buffer->Unmap(0, nullptr);
     render_ctx.index_buffer->Release();
+
+    render_ctx.vertex_buffer->Unmap(0, nullptr);
     render_ctx.vertex_buffer->Release();
 
     render_ctx.direct_cmd_list->Release();
@@ -975,9 +961,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     render_ctx.bundle_allocator->Release();
 
+    // release FrameResources
     for (unsigned i = 0; i < FRAME_COUNT; ++i) {
-        render_ctx.render_targets[i]->Release();
-        render_ctx.cmd_allocator[i]->Release();
+        render_ctx.frame_resources[i].render_target->Release();
+        render_ctx.frame_resources[i].cmd_list_alloc->Release();
     }
 
     render_ctx.srv_cbv_heap->Release();

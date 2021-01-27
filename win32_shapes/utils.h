@@ -111,6 +111,10 @@ create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_d
 
     // We do not need to unmap until we are done with the resource.  However, we must not write to
     // the resource while it is in use by the GPU (so we must use synchronization techniques).
+    // We don't unmap this until the app closes. 
+    // Keeping things mapped for the lifetime of the resource is okay.
+
+    // (*out_upload_buffer)->Unmap(0, nullptr /*aka full-range*/);
 }
 
 
@@ -120,6 +124,9 @@ struct FrameResource {
     // So each frame needs their own allocator.
     ID3D12CommandAllocator * cmd_list_alloc;
 
+    // Each frame needs a render target
+    ID3D12Resource * render_target;
+
     // We cannot update a cbuffer until the GPU is done processing the commands
     // that reference it.  So each frame needs their own cbuffers.
     PassConstantBuffer * pass_cb;
@@ -127,7 +134,7 @@ struct FrameResource {
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.
-    UINT64 fence = 0;
+    UINT64 fence;
 };
 struct RenderItem {
     // World matrix of the shape that describes the object's local space
@@ -154,9 +161,13 @@ struct RenderItem {
     int base_vertex_loc;
 };
 
+struct Vertex {
+    XMFLOAT3 pos;
+    XMFLOAT4 color;
+};
 struct TextuVertex {
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT2 uv;
+    XMFLOAT3 position;
+    XMFLOAT2 uv;
 };
 struct SceneContext {
     // camera settings (spherical coordinate)
