@@ -46,8 +46,6 @@ struct D3DRenderContext {
     IDXGISwapChain3 *               swapchain3;
     IDXGISwapChain *                swapchain;
     ID3D12Device *                  device;
-    //ID3D12Resource *                render_targets[FRAME_COUNT];
-    //ID3D12CommandAllocator *        cmd_allocator[FRAME_COUNT];
     ID3D12CommandAllocator *        bundle_allocator;
     ID3D12CommandQueue *            cmd_queue;
     ID3D12RootSignature *           root_signature;
@@ -75,11 +73,9 @@ struct D3DRenderContext {
     UINT                            frame_index;
     HANDLE                          fence_event;
     ID3D12Fence *                   fence;
-    UINT64                          fence_value[FRAME_COUNT];
+    FrameResource                   frame_resources [NUM_FRAME_RESOURCES];
 
-    FrameResource frame_resources[NUM_FRAME_RESOURCES];
-    // TODO(omid): perhaps allocate FrameResources on heap? 
-    // FrameResource * frame_resources[NUM_FRAME_RESOURCES];
+    // TODO(omid): Do we need the followings now? 
     FrameResource * current_frame_resource;
     int current_frame_resource_index;
 
@@ -87,9 +83,10 @@ struct D3DRenderContext {
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx) {
     HRESULT ret = E_FAIL;
+    UINT frame_index = render_ctx->frame_index;
 
     // -- 1. schedule a signal command in the queue
-    UINT64 const current_fence_value = render_ctx->fence_value[render_ctx->frame_index];
+    UINT64 const current_fence_value = render_ctx->frame_resources[frame_index].fence;
     ret = render_ctx->cmd_queue->Signal(render_ctx->fence, current_fence_value);
     CHECK_AND_FAIL(ret);
 
@@ -97,32 +94,33 @@ move_to_next_frame (D3DRenderContext * render_ctx) {
     render_ctx->frame_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
 
     // -- 3. if the next frame is not ready to be rendered yet, wait until it is ready
-    if (render_ctx->fence->GetCompletedValue() < render_ctx->fence_value[render_ctx->frame_index]) {
-        ret = render_ctx->fence->SetEventOnCompletion(render_ctx->fence_value[render_ctx->frame_index], render_ctx->fence_event);
+    if (render_ctx->fence->GetCompletedValue() < render_ctx->frame_resources[frame_index].fence) {
+        ret = render_ctx->fence->SetEventOnCompletion(render_ctx->frame_resources[frame_index].fence, render_ctx->fence_event);
         CHECK_AND_FAIL(ret);
         WaitForSingleObjectEx(render_ctx->fence_event, INFINITE /*return only when the object is signaled*/, false);
     }
 
     // -- 3. set the fence value for the next frame
-    render_ctx->fence_value[render_ctx->frame_index] = current_fence_value + 1;
+    render_ctx->frame_resources[frame_index].fence = current_fence_value + 1;
 
     return ret;
 }
 static HRESULT
 wait_for_gpu (D3DRenderContext * render_ctx) {
     HRESULT ret = E_FAIL;
+    UINT frame_index = render_ctx->frame_index;
 
     // -- 1. schedule a signal command in the queue
-    ret = render_ctx->cmd_queue->Signal(render_ctx->fence, render_ctx->fence_value[render_ctx->frame_index]);
+    ret = render_ctx->cmd_queue->Signal(render_ctx->fence, render_ctx->frame_resources[frame_index].fence);
     CHECK_AND_FAIL(ret);
 
     // -- 2. wait until the fence has been processed
-    ret = render_ctx->fence->SetEventOnCompletion(render_ctx->fence_value[render_ctx->frame_index], render_ctx->fence_event);
+    ret = render_ctx->fence->SetEventOnCompletion(render_ctx->frame_resources[frame_index].fence, render_ctx->fence_event);
     CHECK_AND_FAIL(ret);
     WaitForSingleObjectEx(render_ctx->fence_event, INFINITE /*return only when the object is signaled*/, false);
 
     // -- 3. increment fence value for the current frame
-    ++render_ctx->fence_value[render_ctx->frame_index];
+    ++render_ctx->frame_resources[frame_index].fence;
 
     return ret;
 }
@@ -884,9 +882,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     //----------------
     // Create fence
     // create synchronization objects and wait until assets have been uploaded to the GPU.
-    CHECK_AND_FAIL(render_ctx.device->CreateFence(render_ctx.fence_value[render_ctx.frame_index], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&render_ctx.fence)));
+    UINT frame_index = render_ctx.frame_index;
+    CHECK_AND_FAIL(render_ctx.device->CreateFence(render_ctx.frame_resources[frame_index].fence, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&render_ctx.fence)));
 
-    ++render_ctx.fence_value[render_ctx.frame_index];
+    ++render_ctx.frame_resources[frame_index].fence;
 
     // Create an event handle to use for frame synchronization.
     render_ctx.fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);

@@ -73,50 +73,6 @@ struct PassConstantBuffer {
 };
 static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
 
-static void
-create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_data, ID3D12Resource ** out_upload_buffer) {
-
-    D3D12_HEAP_PROPERTIES heap_props = {};
-    heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
-    heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-    heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-    heap_props.CreationNodeMask = 1U;
-    heap_props.VisibleNodeMask = 1U;
-
-    D3D12_RESOURCE_DESC rsc_desc = {};
-    rsc_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
-    rsc_desc.Alignment = 0;
-    rsc_desc.Width = total_size;
-    rsc_desc.Height = 1;
-    rsc_desc.DepthOrArraySize = 1;
-    rsc_desc.MipLevels = 1;
-    rsc_desc.Format = DXGI_FORMAT_UNKNOWN;
-    rsc_desc.SampleDesc.Count = 1;
-    rsc_desc.SampleDesc.Quality = 0;
-    rsc_desc.Layout = D3D12_TEXTURE_LAYOUT::D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    rsc_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    CHECK_AND_FAIL(device->CreateCommittedResource(
-        &heap_props,
-        D3D12_HEAP_FLAG_NONE,
-        &rsc_desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(out_upload_buffer)));
-
-    D3D12_RANGE mem_range = {};
-    mem_range.Begin = 0;
-    mem_range.End = 0;
-    CHECK_AND_FAIL((*out_upload_buffer)->Map(0, &mem_range, reinterpret_cast<void**>(mapped_data)));
-
-    // We do not need to unmap until we are done with the resource.  However, we must not write to
-    // the resource while it is in use by the GPU (so we must use synchronization techniques).
-    // We don't unmap this until the app closes. 
-    // Keeping things mapped for the lifetime of the resource is okay.
-
-    // (*out_upload_buffer)->Unmap(0, nullptr /*aka full-range*/);
-}
-
 
 // FrameResource stores the resources needed for the CPU to build the command lists for a frame.
 struct FrameResource {
@@ -189,32 +145,49 @@ struct SceneContext {
     float aspect_ratio;
 };
 
+
 static void
-handle_mouse_move(SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
-    if ((wParam & MK_LBUTTON) != 0) {
-        // make each pixel correspond to a quarter of a degree
-        float dx = DirectX::XMConvertToRadians(0.25f * (float)(x - scene_ctx->mouse.x));
-        float dy = DirectX::XMConvertToRadians(0.25f * (float)(y - scene_ctx->mouse.y));
+create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_data, ID3D12Resource ** out_upload_buffer) {
 
-        // update angles (to orbit camera around)
-        scene_ctx->theta += dx;
-        scene_ctx->phi += dy;
+    D3D12_HEAP_PROPERTIES heap_props = {};
+    heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    heap_props.CreationNodeMask = 1U;
+    heap_props.VisibleNodeMask = 1U;
 
-        // clamp phi
-        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
-    } else if ((wParam & MK_RBUTTON) != 0) {
-        // make each pixel correspond to a 0.005 unit in scene
-        float dx = 0.005f * (float)(x - scene_ctx->mouse.x);
-        float dy = 0.005f * (float)(y - scene_ctx->mouse.y);
+    D3D12_RESOURCE_DESC rsc_desc = {};
+    rsc_desc.Dimension = D3D12_RESOURCE_DIMENSION::D3D12_RESOURCE_DIMENSION_BUFFER;
+    rsc_desc.Alignment = 0;
+    rsc_desc.Width = total_size;
+    rsc_desc.Height = 1;
+    rsc_desc.DepthOrArraySize = 1;
+    rsc_desc.MipLevels = 1;
+    rsc_desc.Format = DXGI_FORMAT_UNKNOWN;
+    rsc_desc.SampleDesc.Count = 1;
+    rsc_desc.SampleDesc.Quality = 0;
+    rsc_desc.Layout = D3D12_TEXTURE_LAYOUT::D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    rsc_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
-        // update camera radius
-        scene_ctx->radius += dx - dy;
+    CHECK_AND_FAIL(device->CreateCommittedResource(
+        &heap_props,
+        D3D12_HEAP_FLAG_NONE,
+        &rsc_desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(out_upload_buffer)));
 
-        // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 3.0f, 15.0f);
-    }
-    scene_ctx->mouse.x = x;
-    scene_ctx->mouse.y = y;
+    D3D12_RANGE mem_range = {};
+    mem_range.Begin = 0;
+    mem_range.End = 0;
+    CHECK_AND_FAIL((*out_upload_buffer)->Map(0, &mem_range, reinterpret_cast<void**>(mapped_data)));
+
+    // We do not need to unmap until we are done with the resource.  However, we must not write to
+    // the resource while it is in use by the GPU (so we must use synchronization techniques).
+    // We don't unmap this until the app closes. 
+
+    // NOTE(omid): Keeping things mapped for the lifetime of the resource is okay.
+    // (*out_upload_buffer)->Unmap(0, nullptr /*aka full-range*/);
 }
 static void
 create_box_vertices (TextuVertex out_vertices [], uint16_t out_indices []) {
@@ -399,4 +372,31 @@ generate_checkerboard_pattern (
         ret = true;
     }
     return ret;
+}
+static void
+handle_mouse_move(SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
+    if ((wParam & MK_LBUTTON) != 0) {
+        // make each pixel correspond to a quarter of a degree
+        float dx = DirectX::XMConvertToRadians(0.25f * (float)(x - scene_ctx->mouse.x));
+        float dy = DirectX::XMConvertToRadians(0.25f * (float)(y - scene_ctx->mouse.y));
+
+        // update angles (to orbit camera around)
+        scene_ctx->theta += dx;
+        scene_ctx->phi += dy;
+
+        // clamp phi
+        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
+    } else if ((wParam & MK_RBUTTON) != 0) {
+        // make each pixel correspond to a 0.005 unit in scene
+        float dx = 0.005f * (float)(x - scene_ctx->mouse.x);
+        float dy = 0.005f * (float)(y - scene_ctx->mouse.y);
+
+        // update camera radius
+        scene_ctx->radius += dx - dy;
+
+        // clamp radius
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 3.0f, 15.0f);
+    }
+    scene_ctx->mouse.x = x;
+    scene_ctx->mouse.y = y;
 }
