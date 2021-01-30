@@ -32,9 +32,9 @@
 // available.
 // It should be noted that excessive buffering of frames dependent on user input
 // may result in noticeable latency in your app.
-#define FRAME_COUNT     3
+#define FRAME_COUNT     2   // TODO(omid): check the inconsistant frame_count = 3 error after final gpu waiting, on "texture->release"
 // Need a FrameResource for each frame
-#define NUM_FRAME_RESOURCES         FRAME_COUNT
+#define NUM_FRAME_RESOURCES     FRAME_COUNT
 
 bool global_running;
 SceneContext global_scene_ctx;

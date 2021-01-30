@@ -25,29 +25,7 @@
 #define ARRAY_COUNT(arr)                sizeof(arr)/sizeof(arr[0])
 #define CLAMP_VALUE(val, lb, ub)        val < lb ? lb : (val > ub ? ub : val); 
 
-
 using namespace DirectX;
-
-static XMFLOAT4X4
-Identity4x4() {
-    static XMFLOAT4X4 I(
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f);
-
-    return I;
-}
-static XMMATRIX
-IdentityMat() {
-    static XMMATRIX I(
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f);
-
-    return I;
-}
 
 struct ObjectConstantBuffer {
     XMFLOAT4X4 world_view_proj;
@@ -118,8 +96,10 @@ struct RenderItem {
 };
 
 struct Vertex {
-    XMFLOAT3 pos;
-    XMFLOAT4 color;
+    XMFLOAT3 Position;
+    XMFLOAT3 Normal;
+    XMFLOAT3 TangentU;
+    XMFLOAT2 TexC;
 };
 struct TextuVertex {
     XMFLOAT3 position;
@@ -145,6 +125,26 @@ struct SceneContext {
     float aspect_ratio;
 };
 
+static XMFLOAT4X4
+Identity4x4() {
+    static XMFLOAT4X4 I(
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f);
+
+    return I;
+}
+static XMMATRIX
+IdentityMat() {
+    static XMMATRIX I(
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f);
+
+    return I;
+}
 
 static void
 create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_data, ID3D12Resource ** out_upload_buffer) {
@@ -189,6 +189,361 @@ create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_d
     // NOTE(omid): Keeping things mapped for the lifetime of the resource is okay.
     // (*out_upload_buffer)->Unmap(0, nullptr /*aka full-range*/);
 }
+
+// NOTE(omid): shape generator helpers 
+static void
+create_box (float width, float height, float depth, Vertex out_vtx [], uint16_t out_idx []) {
+
+    // Creating Vertices
+
+    float half_width = 0.5f * width;
+    float half_height = 0.5f * height;
+    float half_depth = 0.5f * depth;
+
+    // Fill in the front face vertex data.
+    out_vtx[0] = {.Position = {-half_width, -half_height, -half_depth}, .Normal = { 0.0f, 0.0f, -1.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 1.0f}};
+    out_vtx[1] = {.Position = {-half_width, +half_height, -half_depth}, .Normal = { 0.0f, 0.0f, -1.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 0.0f}};
+    out_vtx[2] = {.Position = {+half_width, +half_height, -half_depth}, .Normal = { 0.0f, 0.0f, -1.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 0.0f}};
+    out_vtx[3] = {.Position = {+half_width, -half_height, -half_depth}, .Normal = { 0.0f, 0.0f, -1.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 1.0f}};
+
+    // Fill in the back face vertex data.
+    out_vtx[4] = {.Position = {-half_width, -half_height, +half_depth}, .Normal = { 0.0f, 0.0f, 1.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 1.0f}};
+    out_vtx[5] = {.Position = {+half_width, -half_height, +half_depth}, .Normal = { 0.0f, 0.0f, 1.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 1.0f}};
+    out_vtx[6] = {.Position = {+half_width, +half_height, +half_depth}, .Normal = { 0.0f, 0.0f, 1.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 0.0f}};
+    out_vtx[7] = {.Position = {-half_width, +half_height, +half_depth}, .Normal = { 0.0f, 0.0f, 1.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 0.0f}};
+
+    // Fill in the top face vertex data.
+    out_vtx[8] = {.Position = {-half_width, +half_height, -half_depth}, .Normal = { 0.0f, 1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 1.0f}};
+    out_vtx[9] = {.Position = {-half_width, +half_height, +half_depth}, .Normal = { 0.0f, 1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 0.0f}};
+    out_vtx[10] = {.Position = {+half_width, +half_height, +half_depth}, .Normal = { 0.0f, 1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 0.0f}};
+    out_vtx[11] = {.Position = {+half_width, +half_height, -half_depth}, .Normal = { 0.0f, 1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 1.0f}};
+
+    // Fill in the bottom face vertex data.
+    out_vtx[12] = {.Position = {-half_width, -half_height, -half_depth}, .Normal = { 0.0f, -1.0f, 0.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 1.0f}};
+    out_vtx[13] = {.Position = {+half_width, -half_height, -half_depth}, .Normal = { 0.0f, -1.0f, 0.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 1.0f}};
+    out_vtx[14] = {.Position = {+half_width, -half_height, +half_depth}, .Normal = { 0.0f, -1.0f, 0.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 0.0f}};
+    out_vtx[15] = {.Position = {-half_width, -half_height, +half_depth}, .Normal = { 0.0f, -1.0f, 0.0f}, .TangentU = {-1.0f, 0.0f, 0.0f}, .TexC = {1.0f, 0.0f}};
+
+    // Fill in the left face vertex data.
+    out_vtx[16] = {.Position = {-half_width, -half_height, +half_depth}, .Normal = { -1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, -1.0f}, .TexC = {0.0f, 1.0f}};
+    out_vtx[17] = {.Position = {-half_width, +half_height, +half_depth}, .Normal = { -1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, -1.0f}, .TexC = {0.0f, 0.0f}};
+    out_vtx[18] = {.Position = {-half_width, +half_height, -half_depth}, .Normal = { -1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, -1.0f}, .TexC = {1.0f, 0.0f}};
+    out_vtx[19] = {.Position = {-half_width, -half_height, -half_depth}, .Normal = { -1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, -1.0f}, .TexC = {1.0f, 1.0f}};
+
+    // Fill in the right face vertex data.
+    out_vtx[20] = {.Position = {+half_width, -half_height, -half_depth}, .Normal = { 1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, 1.0f}, .TexC = {0.0f, 1.0f}};
+    out_vtx[21] = {.Position = {+half_width, +half_height, -half_depth}, .Normal = { 1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, 1.0f}, .TexC = {0.0f, 0.0f}};
+    out_vtx[22] = {.Position = {+half_width, +half_height, +half_depth}, .Normal = { 1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, 1.0f}, .TexC = {1.0f, 0.0f}};
+    out_vtx[23] = {.Position = {+half_width, -half_height, +half_depth}, .Normal = { 1.0f, 0.0f, 0.0f}, .TangentU = {0.0f, 0.0f, 1.0f}, .TexC = {1.0f, 1.0f}};
+
+    // -- Creating Indices 
+
+    // Fill in the front face index data
+    out_idx[0] = 0; out_idx[1] = 1; out_idx[2] = 2;
+    out_idx[3] = 0; out_idx[4] = 2; out_idx[5] = 3;
+
+    // Fill in the back face index data
+    out_idx[6] = 4; out_idx[7] = 5; out_idx[8] = 6;
+    out_idx[9] = 4; out_idx[10] = 6; out_idx[11] = 7;
+
+    // Fill in the top face index data
+    out_idx[12] = 8; out_idx[13] = 9; out_idx[14] = 10;
+    out_idx[15] = 8; out_idx[16] = 10; out_idx[17] = 11;
+
+    // Fill in the bottom face index data
+    out_idx[18] = 12; out_idx[19] = 13; out_idx[20] = 14;
+    out_idx[21] = 12; out_idx[22] = 14; out_idx[23] = 15;
+
+    // Fill in the left face index data
+    out_idx[24] = 16; out_idx[25] = 17; out_idx[26] = 18;
+    out_idx[27] = 16; out_idx[28] = 18; out_idx[29] = 19;
+
+    // Fill in the right face index data
+    out_idx[30] = 20; out_idx[31] = 21; out_idx[32] = 22;
+    out_idx[33] = 20; out_idx[34] = 22; out_idx[35] = 23;
+}
+static void
+create_sphere (float radius, Vertex out_vtx [], uint16_t out_idx []) {
+
+    // TODO(omid): add some validation for array sizes
+    /* out_vtx [401], out_idx [2280] */
+
+    // -- Compute the vertices stating at the top pole and moving down the stacks.
+    UINT32 n_stack = 20;
+    UINT32 n_slice = 20;
+    UINT32 n_vtx = n_stack * n_slice;
+    float phi_step = XM_PI / n_stack;
+    float theta_step = 2.0f * XM_PI / n_slice;
+
+    // Poles: note that there will be texture coordinate distortion as there is
+    // not a unique point on the texture map to assign to the pole when mapping
+    // a rectangular texture onto a sphere.
+    Vertex top = {.Position = {0.0f, +radius, 0.0f}, .Normal = {0.0f, +1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 0.0f}};
+    Vertex bottom = {.Position = {0.0f, -radius, 0.0f}, .Normal = {0.0f, -1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 1.0f}};
+
+    out_vtx[0] = top;
+    out_vtx[n_vtx + 1] = bottom;
+
+    // -- Compute vertices for each stack ring (do not count the poles as rings).
+    for (UINT32 i = 1; i <= n_stack - 1; ++i) {
+        float phi = i * phi_step;
+
+        // Vertices of ring.
+        for (UINT32 j = 0; j <= n_slice; ++j) {
+            float theta = j * theta_step;
+
+            Vertex v = {};
+
+            // spherical to cartesian
+            v.Position.x = radius * sinf(phi) * cosf(theta);
+            v.Position.y = radius * cosf(phi);
+            v.Position.z = radius * sinf(phi) * sinf(theta);
+
+            // Partial derivative of P with respect to theta
+            v.TangentU.x = -radius * sinf(phi) * sinf(theta);
+            v.TangentU.y = 0.0f;
+            v.TangentU.z = +radius * sinf(phi) * cosf(theta);
+
+            XMVECTOR T = XMLoadFloat3(&v.TangentU);
+            XMStoreFloat3(&v.TangentU, XMVector3Normalize(T));
+
+            XMVECTOR p = XMLoadFloat3(&v.Position);
+            XMStoreFloat3(&v.Normal, XMVector3Normalize(p));
+
+            v.TexC.x = theta / XM_2PI;
+            v.TexC.y = phi / XM_PI;
+
+            out_vtx[i * n_slice + j] = v;
+        }
+    }
+
+    // -- Compute indices for top stack.  The top stack was written first to the vertex buffer and connects the top pole to the first ring.
+
+    UINT32 _idx_cnt = 0;
+    for (UINT32 i = 1; i <= n_slice; ++i) {
+        out_idx[_idx_cnt++] = 0;
+        out_idx[_idx_cnt++] = i + 1;
+        out_idx[_idx_cnt++] = i;
+    }
+
+    // -- Compute indices for inner stacks (not connected to poles).
+
+    // -- Offset the indices to the index of the first vertex in the first ring.
+    // TODO(omid): fix this shenanigan 
+    // This is just skipping the top pole vertex.
+    UINT32 base_index = 1;
+    UINT32 ring_vtx_cnt = n_slice + 1;
+    for (UINT32 i = 0; i < n_stack - 2; ++i) {
+        for (UINT32 j = 0; j < n_slice; ++j) {
+            out_idx[_idx_cnt++] = base_index + i * ring_vtx_cnt + j;
+            out_idx[_idx_cnt++] = base_index + i * ring_vtx_cnt + j + 1;
+            out_idx[_idx_cnt++] = base_index + (i + 1) * ring_vtx_cnt + j;
+
+            out_idx[_idx_cnt++] = base_index + (i + 1) * ring_vtx_cnt + j;
+            out_idx[_idx_cnt++] = base_index + i * ring_vtx_cnt + j + 1;
+            out_idx[_idx_cnt++] = base_index + (i + 1) * ring_vtx_cnt + j + 1;
+        }
+    }
+
+    // -- Compute indices for bottom stack.  The bottom stack was written last to the vertex buffer and connects the bottom pole to the bottom ring.
+
+    // South pole vertex was added last.
+    UINT32 south_pole_index = n_vtx - 1;
+
+    // offset the indices to the index of the first vertex in the last ring.
+    base_index = south_pole_index - ring_vtx_cnt;
+
+    for (UINT32 i = 0; i < n_slice; ++i) {
+        out_idx[_idx_cnt++] = south_pole_index;
+        out_idx[_idx_cnt++] = base_index + i;
+        out_idx[_idx_cnt++] = base_index + i + 1;
+    }
+}
+static void
+create_cylinder (float bottom_radius, float top_radius, float height, Vertex out_vtx [], uint16_t out_idx []) {
+
+    // TODO(omid): add some validation for array sizes
+    /* out_vtx [485], out_idx [2520] */
+
+    // -- Build Stacks.
+    UINT32 n_stack = 20;
+    UINT32 n_slice = 20;
+    float stack_height = height / n_stack;
+
+    // Amount to increment radius as we move up each stack level from bottom to top.
+    float radius_step = (top_radius - bottom_radius) / n_stack;
+    UINT32 ring_cnt = n_stack + 1;
+
+    UINT32 _vtx_cnt = 0;
+    UINT32 _idx_cnt = 0;
+
+    // Compute vertices for each stack ring starting at the bottom and moving up.
+    for (UINT32 i = 0; i < ring_cnt; ++i) {
+        float y = -0.5f * height + i * stack_height;
+        float r = bottom_radius + i * radius_step;
+
+        // vertices of ring
+        float dtheta = 2.0f * XM_PI / n_slice;
+        for (UINT32 j = 0; j <= n_slice; ++j) {
+            Vertex vertex = {};
+
+            float c = cosf(j * dtheta);
+            float s = sinf(j * dtheta);
+
+            vertex.Position = XMFLOAT3(r * c, y, r * s);
+
+            vertex.TexC.x = (float)j / n_slice;
+            vertex.TexC.y = 1.0f - (float)i / n_stack;
+
+            // This is unit length.
+            vertex.TangentU = XMFLOAT3(-s, 0.0f, c);
+
+            float dr = bottom_radius - top_radius;
+            XMFLOAT3 bitangent(dr * c, -height, dr * s);
+
+            XMVECTOR T = XMLoadFloat3(&vertex.TangentU);
+            XMVECTOR B = XMLoadFloat3(&bitangent);
+            XMVECTOR N = XMVector3Normalize(XMVector3Cross(T, B));
+            XMStoreFloat3(&vertex.Normal, N);
+
+            out_vtx[_vtx_cnt++] = vertex;
+        }
+    }
+
+    // Add one because we duplicate the first and last vertex per ring
+    // since the texture coordinates are different.
+    UINT32 ring_vertex_count = n_slice + 1;
+
+    // Compute indices for each stack.
+    for (UINT32 i = 0; i < n_stack; ++i) {
+        for (UINT32 j = 0; j < n_slice; ++j) {
+            out_idx[_idx_cnt++] = i * ring_vertex_count + j;
+            out_idx[_idx_cnt++] = (i + 1) * ring_vertex_count + j;
+            out_idx[_idx_cnt++] = (i + 1) * ring_vertex_count + j + 1;
+
+            out_idx[_idx_cnt++] = i * ring_vertex_count + j;
+            out_idx[_idx_cnt++] = (i + 1) * ring_vertex_count + j + 1;
+            out_idx[_idx_cnt++] = i * ring_vertex_count + j + 1;
+        }
+    }
+
+#pragma region build cylinder top
+    UINT32 base_index_top = _vtx_cnt;
+    SIMPLE_ASSERT(441 == base_index_top, "wrong vtx count");
+    float y1 = 0.5f * height;
+    float dtheta = 2.0f * XM_PI / n_slice;
+
+    // Duplicate cap ring vertices because the texture coordinates and normals differ.
+    for (UINT32 i = 0; i <= n_slice; ++i) {
+        float x = top_radius * cosf(i * dtheta);
+        float z = top_radius * sinf(i * dtheta);
+
+        // Scale down by the height to try and make top cap texture coord area
+        // proportional to base.
+        float u = x / height + 0.5f;
+        float v = z / height + 0.5f;
+
+        out_vtx[_vtx_cnt++] = {.Position = {x, y1, z}, .Normal = {0.0f, 1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {u, v}};
+    }
+
+    // Cap center vertex.
+    out_vtx[_vtx_cnt++] = {.Position = {0.0f, y1, 0.0f}, .Normal = {0.0f, 1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.5f, 0.5f}};
+
+    // Index of center vertex.
+    UINT32 center_index_top = _vtx_cnt - 1;
+    SIMPLE_ASSERT(462 == center_index_top, "wrong vtx count");
+
+    for (UINT32 i = 0; i < n_slice; ++i) {
+        out_idx[_idx_cnt++] = center_index_top;
+        out_idx[_idx_cnt++] = base_index_top + i + 1;
+        out_idx[_idx_cnt++] = base_index_top + i;
+    }
+#pragma endregion build cylinder top
+
+#pragma region build cylinder bottom
+    UINT32 base_index_bottom = _vtx_cnt;
+    SIMPLE_ASSERT(463 == base_index_bottom, "wrong vtx count");
+    float y2 = -0.5f * height;
+
+    // vertices of ring
+    float dTheta = 2.0f * XM_PI / n_slice;
+    for (UINT32 i = 0; i <= n_slice; ++i) {
+        float x = bottom_radius * cosf(i * dtheta);
+        float z = bottom_radius * sinf(i * dtheta);
+
+        // Scale down by the height to try and make top cap texture coord area
+        // proportional to base.
+        float u = x / height + 0.5f;
+        float v = z / height + 0.5f;
+        out_vtx[_vtx_cnt++] = {.Position = {x, y2, z}, .Normal = {0.0f, -1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {u, v}};
+    }
+
+    // Cap center vertex.
+    out_vtx[_vtx_cnt++] = {.Position = {0.0f, y2, 0.0f}, .Normal = {0.0f, -1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.5f, 0.5f}};
+
+    // Cache the index of center vertex.
+    UINT32 center_index_bottom = _vtx_cnt - 1;
+    SIMPLE_ASSERT(484 == center_index_bottom, "wrong vtx count");
+
+    for (UINT32 i = 0; i < n_slice; ++i) {
+        out_idx[_idx_cnt++] = center_index_bottom;
+        out_idx[_idx_cnt++] = base_index_bottom + i;
+        out_idx[_idx_cnt++] = base_index_bottom + i + 1;
+    }
+#pragma endregion build cylinder bottom
+
+}
+
+static void
+create_grid (float width, float depth, UINT32 m, UINT32 n, Vertex out_vtx [], uint16_t out_idx []) {
+    UINT32 _vtx_cnt = m * n;
+    UINT32 face_cnt = (m - 1) * (n - 1) * 2;
+
+    // -- Create the vertices.
+
+    float half_width = 0.5f * width;
+    float half_depth = 0.5f * depth;
+
+    float dx = width / (n - 1);
+    float dz = depth / (m - 1);
+
+    float du = 1.0f / (n - 1);
+    float dv = 1.0f / (m - 1);
+
+    for (UINT32 i = 0; i < m; ++i) {
+        float z = half_depth - i * dz;
+        for (UINT32 j = 0; j < n; ++j) {
+            float x = -half_width + j * dx;
+
+            out_vtx[i * n + j].Position = XMFLOAT3(x, 0.0f, z);
+            out_vtx[i * n + j].Normal = XMFLOAT3(0.0f, 1.0f, 0.0f);
+            out_vtx[i * n + j].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
+
+            // Stretch texture over grid.
+            out_vtx[i * n + j].TexC.x = j * du;
+            out_vtx[i * n + j].TexC.y = i * dv;
+        }
+    }
+
+    // -- Create the indices.
+
+    // Iterate over each quad and compute indices.
+    UINT32 k = 0;
+    for (UINT32 i = 0; i < m - 1; ++i) {
+        for (UINT32 j = 0; j < n - 1; ++j) {
+            out_idx[k] = i * n + j;
+            out_idx[k + 1] = i * n + j + 1;
+            out_idx[k + 2] = (i + 1) * n + j;
+
+            out_idx[k + 3] = (i + 1) * n + j;
+            out_idx[k + 4] = i * n + j + 1;
+            out_idx[k + 5] = (i + 1) * n + j + 1;
+
+            k += 6; // next quad
+        }
+    }
+}
+
 static void
 create_box_vertices (TextuVertex out_vertices [], uint16_t out_indices []) {
     // TODO(omid): Check the issue with uv values
