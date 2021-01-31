@@ -26,3 +26,5 @@
         abort();            \
     }
 
+#define SIMPLE_ASSERT_FALSE(exp, msg)   SIMPLE_ASSERT(!exp, msg)
+

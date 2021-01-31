@@ -187,7 +187,93 @@ create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_d
     // NOTE(omid): Keeping things mapped for the lifetime of the resource is okay.
     // (*out_upload_buffer)->Unmap(0, nullptr /*aka full-range*/);
 }
+// Stack-allocating UpdateSubresources
+ /*refer to stack-allocating UpdateSubresources implementation in d3dx12.h (towards the end)*/
+inline UINT64
+update_subresources(
+    ID3D12GraphicsCommandList * cmd_list,
+    ID3D12Resource * dest_resource,
+    ID3D12Resource * intermediate,
+    UINT64 intermediate_offset,
+    UINT first_subresource,
+    UINT n_subresources,
+    D3D12_SUBRESOURCE_DATA * src_data
+) {
+    UINT const MaxSubresources = 1;
+    SIMPLE_ASSERT(first_subresource < MaxSubresources, "invalid first_subresource");
+    SIMPLE_ASSERT(0 < n_subresources && n_subresources <= (MaxSubresources - first_subresource), "invalid n_subresources");
 
+    UINT64 required_size = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[MaxSubresources];
+    UINT n_rows[MaxSubresources];
+    UINT64 row_sizes_in_byte[MaxSubresources];
+
+    D3D12_RESOURCE_DESC Desc = dest_resource->GetDesc();
+    ID3D12Device* pDevice;
+    dest_resource->GetDevice(__uuidof(*pDevice), reinterpret_cast<void**>(&pDevice));
+    pDevice->GetCopyableFootprints(&Desc, first_subresource, n_subresources, intermediate_offset, layouts, n_rows, row_sizes_in_byte, &required_size);
+    pDevice->Release();
+
+    // Minor validation
+    D3D12_RESOURCE_DESC IntermediateDesc = intermediate->GetDesc();
+    D3D12_RESOURCE_DESC DestinationDesc = dest_resource->GetDesc();
+    SIMPLE_ASSERT_FALSE((IntermediateDesc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+                         IntermediateDesc.Width < required_size + layouts[0].Offset ||
+                         required_size > (SIZE_T) - 1 ||
+                         (DestinationDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+                          (first_subresource != 0 || n_subresources != 1))), "validation failed!");
+
+    BYTE * data;
+    HRESULT hr = intermediate->Map(0, NULL, reinterpret_cast<void**>(&data));
+
+    for (UINT i = 0; i < n_subresources; ++i) {
+        if (row_sizes_in_byte[i] > (SIZE_T)-1) return 0;
+        D3D12_MEMCPY_DEST dest_data = {data + layouts[i].Offset, layouts[i].Footprint.RowPitch, layouts[i].Footprint.RowPitch * n_rows[i]};
+        // -- Row-by-row memcpy
+        for (UINT z = 0; z < layouts[i].Footprint.Depth; ++z) {
+            BYTE * dest_slice = reinterpret_cast<BYTE*>(dest_data.pData) + dest_data.SlicePitch * z;
+            const BYTE * src_slice = reinterpret_cast<const BYTE*>(src_data[i].pData) + src_data[i].SlicePitch * z;
+            for (UINT y = 0; y < n_rows[i]; ++y) {
+                memcpy(dest_slice + dest_data.RowPitch * y,
+                       src_slice + src_data[i].RowPitch * y,
+                       row_sizes_in_byte[i]);
+            }
+        }
+
+    }
+    intermediate->Unmap(0, NULL);
+
+    if (DestinationDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+
+        // TODO(omid): Do we need D3D12_BOX? 
+        D3D12_BOX src_box = {};
+        src_box.left = UINT(layouts[0].Offset);
+        src_box.top = 0;
+        src_box.front = 0;
+        src_box.right = UINT(layouts[0].Offset + layouts[0].Footprint.Width);
+        src_box.bottom = 1;
+        src_box.back = 1;
+
+        cmd_list->CopyBufferRegion(
+            dest_resource, 0, intermediate, layouts[0].Offset, layouts[0].Footprint.Width);
+    } else {
+        for (UINT i = 0; i < n_subresources; ++i) {
+            D3D12_TEXTURE_COPY_LOCATION loc_dst = {};
+            loc_dst.pResource = dest_resource;
+            loc_dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            loc_dst.SubresourceIndex = i + first_subresource;
+
+            D3D12_TEXTURE_COPY_LOCATION loc_src = {};
+            loc_src.pResource = intermediate;
+            loc_src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            loc_src.PlacedFootprint = layouts[i];
+
+            cmd_list->CopyTextureRegion(&loc_dst, 0, 0, 0, &loc_src, nullptr);
+        }
+    }
+
+    return required_size;
+}
 static void
 create_default_buffer (
     ID3D12Device * device,
@@ -268,14 +354,12 @@ create_default_buffer (
     barrier2.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
     cmd_list->ResourceBarrier(1, &barrier1);
-    
-    UpdateSubresources<1>(cmdList, defaultBuffer.Get(), uploadBuffer.Get(), 0, 0, 1, &subresource_data);
-    
-    cmdList->ResourceBarrier(1, &barrier2);
+    update_subresources(cmd_list, *default_buffer, *upload_buffer, 0, 0, 1, &subresource_data);
+    cmd_list->ResourceBarrier(1, &barrier2);
 
-    // Note: uploadBuffer has to be kept alive after the above function calls because
+    // Note: upload_buffer has to be kept alive after the above function calls because
     // the command list has not been executed yet that performs the actual copy.
-    // The caller can Release the uploadBuffer after it knows the copy has been executed.
+    // The caller can Release the upload_buffer after it knows the copy has been executed.
 
 }
 
