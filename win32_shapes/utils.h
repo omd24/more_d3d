@@ -6,11 +6,9 @@
    #Description: renderer utility tools #
    #Notice: (C) Copyright 2021 by Omid. All Rights Reserved. #
    =========================================================== */
-
 #pragma once
 
 #include "headers/common.h"
-#include "headers/dynarray.h"
 
 #define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
 //#define SUCCEEDED_OPERATION(hr)   (((HRESULT)(hr)) == S_OK)
@@ -188,6 +186,97 @@ create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_d
 
     // NOTE(omid): Keeping things mapped for the lifetime of the resource is okay.
     // (*out_upload_buffer)->Unmap(0, nullptr /*aka full-range*/);
+}
+
+static void
+create_default_buffer (
+    ID3D12Device * device,
+    ID3D12GraphicsCommandList * cmd_list,
+    void * init_data,
+    UINT64 byte_size,
+    ID3D12Resource ** default_buffer,
+    ID3D12Resource ** upload_buffer
+) {
+    D3D12_HEAP_PROPERTIES def_heap = {};
+    def_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    def_heap.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    def_heap.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    def_heap.CreationNodeMask = 1;
+    def_heap.VisibleNodeMask = 1;
+
+    D3D12_RESOURCE_DESC buf_desc = {};
+    buf_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buf_desc.Alignment = 0;
+    buf_desc.Width = byte_size;
+    buf_desc.Height = 1;
+    buf_desc.DepthOrArraySize = 1;
+    buf_desc.MipLevels = 1;
+    buf_desc.Format = DXGI_FORMAT_UNKNOWN;
+    buf_desc.SampleDesc = {.Count = 1, .Quality = 0};
+    buf_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    buf_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    D3D12_HEAP_PROPERTIES upload_heap = {};
+    upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    upload_heap.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    upload_heap.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    upload_heap.CreationNodeMask = 1;
+    upload_heap.VisibleNodeMask = 1;
+
+    // Create the actual default buffer resource.
+    device->CreateCommittedResource(
+        &def_heap,
+        D3D12_HEAP_FLAG_NONE,
+        &buf_desc,
+        D3D12_RESOURCE_STATE_COMMON,
+        nullptr,
+        IID_PPV_ARGS(default_buffer));
+
+    // In order to copy CPU memory data into our default buffer, we need to create
+    // an intermediate upload heap. 
+    device->CreateCommittedResource(
+        &upload_heap,
+        D3D12_HEAP_FLAG_NONE,
+        &buf_desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(upload_buffer));
+
+
+    // Describe the data we want to copy into the default buffer.
+    D3D12_SUBRESOURCE_DATA subresource_data = {};
+    subresource_data.pData = init_data;
+    subresource_data.RowPitch = byte_size;
+    subresource_data.SlicePitch = subresource_data.RowPitch;
+
+    // Schedule to copy the data to the default buffer resource.  At a high level, the helper function UpdateSubresources
+    // will copy the CPU memory into the intermediate upload heap.  Then, using ID3D12CommandList::CopySubresourceRegion,
+    // the intermediate upload heap data will be copied to mBuffer.
+    D3D12_RESOURCE_BARRIER barrier1 = {};
+    barrier1.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier1.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier1.Transition.pResource = *default_buffer;
+    barrier1.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    barrier1.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier1.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    D3D12_RESOURCE_BARRIER barrier2 = {};
+    barrier2.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier2.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier2.Transition.pResource = *default_buffer;
+    barrier2.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier2.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+    barrier2.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+    cmd_list->ResourceBarrier(1, &barrier1);
+    
+    UpdateSubresources<1>(cmdList, defaultBuffer.Get(), uploadBuffer.Get(), 0, 0, 1, &subresource_data);
+    
+    cmdList->ResourceBarrier(1, &barrier2);
+
+    // Note: uploadBuffer has to be kept alive after the above function calls because
+    // the command list has not been executed yet that performs the actual copy.
+    // The caller can Release the uploadBuffer after it knows the copy has been executed.
+
 }
 
 // NOTE(omid): shape generator helpers 

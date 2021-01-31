@@ -8,7 +8,7 @@
    =========================================================== */
 #pragma once
 
-#include "common.h"
+#include "./common.h"
 
 // NOTE(omid):
 // 1. After the first pushback the capacity of a dynarray is 8. After that the capacity gets doubled when necessary (capacity < length)

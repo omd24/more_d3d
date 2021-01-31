@@ -159,6 +159,7 @@
   <ItemGroup>
     <ClInclude Include="headers\common.h" />
     <ClInclude Include="headers\dynarray.h" />
+    <ClInclude Include="mesh_geometry.h" />
     <ClInclude Include="utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

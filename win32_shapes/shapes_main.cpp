@@ -1,4 +1,5 @@
-#include <d3d12.h>
+
+#include "headers/common.h"
 
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
@@ -6,6 +7,7 @@
 
 #include <dxcapi.h>
 
+#include "./headers/dynarray.h"
 #include "utils.h"
 
 #if !defined(NDEBUG) && !defined(_DEBUG)
