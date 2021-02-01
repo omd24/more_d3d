@@ -9,11 +9,13 @@
 #pragma once
 
 #include <windows.h>
-
 #include <d3d12.h>
 #include <d3dcommon.h>
 #include <directxmath.h>
 #include <windowsx.h>
+
+#include <DirectXColors.h>
+#include <DirectXCollision.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,4 +29,15 @@
     }
 
 #define SIMPLE_ASSERT_FALSE(exp, msg)   SIMPLE_ASSERT(!exp, msg)
+
+
+#define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
+//#define SUCCEEDED_OPERATION(hr)   (((HRESULT)(hr)) == S_OK)
+#define FAILED(hr)      (((HRESULT)(hr)) < 0)
+//#define FAILED_OPERATION(hr)      (((HRESULT)(hr)) != S_OK)
+#define CHECK_AND_FAIL(hr)                          \
+    if (FAILED(hr)) {                               \
+        ::printf("[ERROR] " #hr "() failed at line %d. \n", __LINE__);   \
+        ::abort();                                  \
+    }                                               \
 

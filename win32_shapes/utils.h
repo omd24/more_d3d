@@ -9,27 +9,20 @@
 #pragma once
 
 #include "headers/common.h"
-
-#define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
-//#define SUCCEEDED_OPERATION(hr)   (((HRESULT)(hr)) == S_OK)
-#define FAILED(hr)      (((HRESULT)(hr)) < 0)
-//#define FAILED_OPERATION(hr)      (((HRESULT)(hr)) != S_OK)
-#define CHECK_AND_FAIL(hr)                          \
-    if (FAILED(hr)) {                               \
-        ::printf("[ERROR] " #hr "() failed at line %d. \n", __LINE__);   \
-        ::abort();                                  \
-    }                                               \
+#include "mesh_geometry.h"
 
 #define ARRAY_COUNT(arr)                sizeof(arr)/sizeof(arr[0])
 #define CLAMP_VALUE(val, lb, ub)        val < lb ? lb : (val > ub ? ub : val); 
 
 using namespace DirectX;
 
+// -- per object constants
 struct ObjectConstantBuffer {
     XMFLOAT4X4 world_view_proj;
     float padding[48];             // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
+// -- per pass constants
 struct PassConstantBuffer {
     XMFLOAT4X4 view;
     XMFLOAT4X4 inverse_view;
@@ -91,9 +84,15 @@ struct RenderItem {
     UINT index_count;
     UINT start_index_loc;
     int base_vertex_loc;
+
+    MeshGeometry * geo;
 };
 
 struct Vertex {
+    XMFLOAT3 Pos;
+    XMFLOAT4 Color;
+};
+struct GeomVertex {
     XMFLOAT3 Position;
     XMFLOAT3 Normal;
     XMFLOAT3 TangentU;
@@ -228,7 +227,7 @@ update_subresources(
 
     for (UINT i = 0; i < n_subresources; ++i) {
         if (row_sizes_in_byte[i] > (SIZE_T)-1) return 0;
-        D3D12_MEMCPY_DEST dest_data = {data + layouts[i].Offset, layouts[i].Footprint.RowPitch, layouts[i].Footprint.RowPitch * n_rows[i]};
+        D3D12_MEMCPY_DEST dest_data = {data + layouts[i].Offset, layouts[i].Footprint.RowPitch, layouts[i].Footprint.RowPitch * (UINT64)n_rows[i]};
         // -- Row-by-row memcpy
         for (UINT z = 0; z < layouts[i].Footprint.Depth; ++z) {
             BYTE * dest_slice = reinterpret_cast<BYTE*>(dest_data.pData) + dest_data.SlicePitch * z;
@@ -365,7 +364,7 @@ create_default_buffer (
 
 // NOTE(omid): shape generator helpers 
 static void
-create_box (float width, float height, float depth, Vertex out_vtx [], uint16_t out_idx []) {
+create_box (float width, float height, float depth, GeomVertex out_vtx [], uint16_t out_idx []) {
 
     // Creating Vertices
 
@@ -436,7 +435,7 @@ create_box (float width, float height, float depth, Vertex out_vtx [], uint16_t 
     out_idx[33] = 20; out_idx[34] = 22; out_idx[35] = 23;
 }
 static void
-create_sphere (float radius, Vertex out_vtx [], uint16_t out_idx []) {
+create_sphere (float radius, GeomVertex out_vtx [], uint16_t out_idx []) {
 
     // TODO(omid): add some validation for array sizes
     /* out_vtx [401], out_idx [2280] */
@@ -451,8 +450,8 @@ create_sphere (float radius, Vertex out_vtx [], uint16_t out_idx []) {
     // Poles: note that there will be texture coordinate distortion as there is
     // not a unique point on the texture map to assign to the pole when mapping
     // a rectangular texture onto a sphere.
-    Vertex top = {.Position = {0.0f, +radius, 0.0f}, .Normal = {0.0f, +1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 0.0f}};
-    Vertex bottom = {.Position = {0.0f, -radius, 0.0f}, .Normal = {0.0f, -1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 1.0f}};
+    GeomVertex top = {.Position = {0.0f, +radius, 0.0f}, .Normal = {0.0f, +1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 0.0f}};
+    GeomVertex bottom = {.Position = {0.0f, -radius, 0.0f}, .Normal = {0.0f, -1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.0f, 1.0f}};
 
     out_vtx[0] = top;
     out_vtx[n_vtx + 1] = bottom;
@@ -465,7 +464,7 @@ create_sphere (float radius, Vertex out_vtx [], uint16_t out_idx []) {
         for (UINT32 j = 0; j <= n_slice; ++j) {
             float theta = j * theta_step;
 
-            Vertex v = {};
+            GeomVertex v = {};
 
             // spherical to cartesian
             v.Position.x = radius * sinf(phi) * cosf(theta);
@@ -533,7 +532,7 @@ create_sphere (float radius, Vertex out_vtx [], uint16_t out_idx []) {
     }
 }
 static void
-create_cylinder (float bottom_radius, float top_radius, float height, Vertex out_vtx [], uint16_t out_idx []) {
+create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex out_vtx [], uint16_t out_idx []) {
 
     // TODO(omid): add some validation for array sizes
     /* out_vtx [485], out_idx [2520] */
@@ -558,7 +557,7 @@ create_cylinder (float bottom_radius, float top_radius, float height, Vertex out
         // vertices of ring
         float dtheta = 2.0f * XM_PI / n_slice;
         for (UINT32 j = 0; j <= n_slice; ++j) {
-            Vertex vertex = {};
+            GeomVertex vertex = {};
 
             float c = cosf(j * dtheta);
             float s = sinf(j * dtheta);
@@ -666,9 +665,8 @@ create_cylinder (float bottom_radius, float top_radius, float height, Vertex out
 #pragma endregion build cylinder bottom
 
 }
-
 static void
-create_grid (float width, float depth, UINT32 m, UINT32 n, Vertex out_vtx [], uint16_t out_idx []) {
+create_grid (float width, float depth, UINT32 m, UINT32 n, GeomVertex out_vtx [], uint16_t out_idx []) {
     UINT32 _vtx_cnt = m * n;
     UINT32 face_cnt = (m - 1) * (n - 1) * 2;
 

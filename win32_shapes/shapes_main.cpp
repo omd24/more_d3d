@@ -25,6 +25,7 @@
 // TODO(omid): find a better way to disable warnings!
 #pragma warning (disable: 28182)    // pointer can be NULL.
 #pragma warning (disable: 6011)     // dereferencing a potentially null pointer
+#pragma warning (disable: 26495)    // not initializing struct members
 
 // Currently we overload the meaning of FrameCount to mean both the maximum
 // number of frames that will be queued to the GPU at a time, as well as the number
@@ -37,6 +38,7 @@
 #define FRAME_COUNT     2   // TODO(omid): check the inconsistant frame_count = 3 error after final gpu waiting, on "texture->release"
 // Need a FrameResource for each frame
 #define NUM_FRAME_RESOURCES     FRAME_COUNT
+#define MAX_RENDERITEM_COUNT    50
 
 bool global_running;
 SceneContext global_scene_ctx;
@@ -71,17 +73,196 @@ struct D3DRenderContext {
     ObjectConstantBuffer            constant_buffer_data;
     uint8_t *                       cbv_data_begin_ptr;
 
+    // render items
+    UINT                            render_items_count;
+    RenderItem                      render_items[MAX_RENDERITEM_COUNT];
+
+    // TODO(omid): heap-alloc the mesh_geom
+    MeshGeometry                    geom;
+
     // Synchronization stuff
     UINT                            frame_index;
     HANDLE                          fence_event;
     ID3D12Fence *                   fence;
-    FrameResource                   frame_resources [NUM_FRAME_RESOURCES];
+    FrameResource                   frame_resources[NUM_FRAME_RESOURCES];
 
     // TODO(omid): Do we need the followings now? 
     FrameResource * current_frame_resource;
     int current_frame_resource_index;
 
 };
+// NOTE(omid): Don't worry this is expermental!
+#define _BOX_VTX_CNT   24
+#define _BOX_IDX_CNT   36
+
+#define _GRID_VTX_CNT   2400
+#define _GRID_IDX_CNT   13806
+
+#define _SPHERE_VTX_CNT   401
+#define _SPHERE_IDX_CNT   2280
+
+#define _CYLINDER_VTX_CNT   485
+#define _CYLINDER_IDX_CNT   2520
+
+#define _TOTAL_VTX_CNT  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT)
+#define _TOTAL_IDX_CNT  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT)
+
+static void
+create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
+
+    //Vertex      vertices    [_TOTAL_VTX_CNT];
+    //uint16_t    indices     [_TOTAL_IDX_CNT];
+    //Vertex      * vertices = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
+    //uint16_t    * indices = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
+
+    // TODO(omid): use heap-allocating or DYN_ARRAY
+    /*GeomVertex  box_vertices[_BOX_VTX_CNT];
+    uint16_t    box_indices[_BOX_IDX_CNT];
+    GeomVertex  grid_vertices[_GRID_VTX_CNT];
+    uint16_t    grid_indices[_GRID_IDX_CNT];
+    GeomVertex  sphere_vertices[_SPHERE_VTX_CNT];
+    uint16_t    sphere_indices[_SPHERE_IDX_CNT];
+    GeomVertex  cylinder_vertices[_CYLINDER_VTX_CNT];
+    uint16_t    cylinder_indices[_CYLINDER_IDX_CNT];*/
+
+    UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
+    UINT bsz_id = bsz + sizeof(uint16_t) * _BOX_IDX_CNT;
+
+    UINT gsz = bsz_id + sizeof(GeomVertex) * _GRID_VTX_CNT;
+    UINT gsz_id = gsz + sizeof(uint16_t) * _GRID_IDX_CNT;
+
+    UINT ssz = gsz_id + sizeof(GeomVertex) * _SPHERE_VTX_CNT;
+    UINT ssz_id = ssz + sizeof(uint16_t) * _SPHERE_IDX_CNT;
+
+    UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
+    UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT;
+
+
+    GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(memory);
+    uint16_t *      box_indices = reinterpret_cast<uint16_t *>(memory + bsz);
+    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(memory + bsz_id);
+    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(memory + gsz);
+    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(memory + gsz_id);
+    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(memory + ssz);
+    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(memory + ssz_id);
+    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(memory + csz);
+
+    create_box(1.5f, 0.5f, 1.5f, box_vertices, box_indices);
+    create_grid(20.0f, 30.0f, 60, 40, grid_vertices, grid_indices);
+    create_sphere(0.5f, sphere_vertices, sphere_indices);
+    create_cylinder(0.5f, 0.3f, 3.0f, cylinder_vertices, cylinder_indices);
+
+    // We are concatenating all the geometry into one big vertex/index buffer.  So
+    // define the regions in the buffer each submesh covers.
+
+    // Cache the vertex offsets to each object in the concatenated vertex buffer.
+    UINT box_vertex_offset = 0;
+    UINT grid_vertex_offset = _BOX_VTX_CNT;
+    UINT sphere_vertex_offset = grid_vertex_offset + _GRID_VTX_CNT;
+    UINT cylinder_vertex_offset = sphere_vertex_offset + _SPHERE_VTX_CNT;
+
+    // Cache the starting index for each object in the concatenated index buffer.
+    UINT box_index_offset = 0;
+    UINT grid_index_offset = _BOX_IDX_CNT;
+    UINT sphere_index_offset = grid_index_offset + _GRID_IDX_CNT;
+    UINT cylinder_index_offsett = sphere_index_offset + _SPHERE_IDX_CNT;
+
+    // Define the SubmeshGeometry that cover different 
+    // regions of the vertex/index buffers.
+
+    SubmeshGeometry box_submesh = {};
+    box_submesh.index_count = _BOX_IDX_CNT;
+    box_submesh.start_index_location = box_index_offset;
+    box_submesh.base_vertex_location = box_vertex_offset;
+
+    SubmeshGeometry grid_submesh = {};
+    grid_submesh.index_count = _GRID_IDX_CNT;
+    grid_submesh.start_index_location = grid_index_offset;
+    grid_submesh.base_vertex_location = grid_vertex_offset;
+
+    SubmeshGeometry sphere_submesh = {};
+    sphere_submesh.index_count = _SPHERE_IDX_CNT;
+    sphere_submesh.start_index_location = sphere_index_offset;
+    sphere_submesh.base_vertex_location = sphere_vertex_offset;
+
+    SubmeshGeometry cylinder_submesh = {};
+    cylinder_submesh.index_count = _CYLINDER_IDX_CNT;
+    cylinder_submesh.start_index_location = cylinder_index_offsett;
+    cylinder_submesh.base_vertex_location = cylinder_vertex_offset;
+
+    // Extract the vertex elements we are interested in and pack the
+    // vertices of all the meshes into one vertex buffer.
+
+    UINT k = 0;
+    for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
+        vertices[k].Pos = box_vertices[i].Position;
+        vertices[k].Color = XMFLOAT4(DirectX::Colors::DarkGreen);
+    }
+
+    for (size_t i = 0; i < _GRID_VTX_CNT; ++i, ++k) {
+        vertices[k].Pos = grid_vertices[i].Position;
+        vertices[k].Color = XMFLOAT4(DirectX::Colors::ForestGreen);
+    }
+
+    for (size_t i = 0; i < _SPHERE_VTX_CNT; ++i, ++k) {
+        vertices[k].Pos = sphere_vertices[i].Position;
+        vertices[k].Color = XMFLOAT4(DirectX::Colors::Crimson);
+    }
+
+    for (size_t i = 0; i < _CYLINDER_VTX_CNT; ++i, ++k) {
+        vertices[k].Pos = cylinder_vertices[i].Position;
+        vertices[k].Color = XMFLOAT4(DirectX::Colors::SteelBlue);
+    }
+
+    // -- pack indices
+    k = 0;
+    for (size_t i = 0; i < _BOX_IDX_CNT; ++i, ++k) {
+        indices[k] = box_indices[i];
+    }
+
+    for (size_t i = 0; i < _GRID_IDX_CNT; ++i, ++k) {
+        indices[k] = grid_indices[i];
+    }
+
+    for (size_t i = 0; i < _SPHERE_IDX_CNT; ++i, ++k) {
+        indices[k] = sphere_indices[i];
+    }
+
+    for (size_t i = 0; i < _CYLINDER_IDX_CNT; ++i, ++k) {
+        indices[k] = cylinder_indices[i];
+    }
+
+    UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
+    UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
+
+    // -- Fill out render_ctx geom (output)
+
+#pragma warning (disable: 6387)
+
+    D3DCreateBlob(vb_byte_size, &render_ctx->geom.vb_cpu);
+    CopyMemory(render_ctx->geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+
+#pragma warning (default: 6387)
+
+    D3DCreateBlob(ib_byte_size, &render_ctx->geom.ib_cpu);
+    CopyMemory(render_ctx->geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
+
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom.vb_uploader, &render_ctx->geom.vb_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom.ib_uploader, &render_ctx->geom.ib_gpu);
+
+    render_ctx->geom.vb_byte_stide = sizeof(Vertex);
+    render_ctx->geom.vb_byte_size = vb_byte_size;
+    render_ctx->geom.ib_byte_size = ib_byte_size;
+
+    render_ctx->geom.submesh_names[0] = "box";
+    render_ctx->geom.submesh_geoms[0] = box_submesh;
+    render_ctx->geom.submesh_names[1] = "grid";
+    render_ctx->geom.submesh_geoms[1] = grid_submesh;
+    render_ctx->geom.submesh_names[2] = "shpere";
+    render_ctx->geom.submesh_geoms[2] = sphere_submesh;
+    render_ctx->geom.submesh_names[3] = "cylinder";
+    render_ctx->geom.submesh_geoms[3] = cylinder_submesh;
+}
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx) {
     HRESULT ret = E_FAIL;
@@ -228,6 +409,7 @@ render_stuff (D3DRenderContext * render_ctx) {
 
     return ret;
 }
+// Heap-allocating UpdateSubresources (limited version)
 static void
 copy_texture_data_to_texture_resource (
     D3DRenderContext * render_ctx,                      // destination resource
@@ -811,7 +993,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     uint32_t cell_width = (texture_width >> 3) * bytes_per_pixel;           // actual "cell_width" muliplied by "bytes_per_pixel"
     uint32_t cell_height = (texture_height >> 3);
     uint32_t texture_size = texture_width * texture_height * bytes_per_pixel;
-    
+
     uint8_t * texture_ptr = nullptr;
     DYN_ARRAY_INIT(uint8_t, texture_ptr);
     DYN_ARRAY_EXPAND(uint8_t, texture_ptr, texture_size);
@@ -922,6 +1104,22 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     }
 #pragma endregion Main_Loop
 
+
+
+
+#pragma region test
+    Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
+    uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    // NOTE(omid): N.B. cmd_list is closed so mind the errors 
+    /// for real project, first open cmd_list
+    create_shape_geometry(memory, &render_ctx, vts, ids);
+    Mesh_Dispose(&render_ctx.geom);
+#pragma endregion
+
+
+
+
     // ========================================================================================================
 #pragma region Cleanup_And_Debug
     CHECK_AND_FAIL(wait_for_gpu(&render_ctx));
@@ -942,7 +1140,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.constant_buffer->Release();
 
     render_ctx.texture->Release();
-    
+
     render_ctx.index_buffer->Unmap(0, nullptr);
     render_ctx.index_buffer->Release();
 

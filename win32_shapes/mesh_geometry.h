@@ -9,7 +9,6 @@
 #pragma once
 
 #include "headers/common.h"
-#include <DirectXCollision.h>
 
 #define MAX_SUBMESH_COUNT    100
 
@@ -30,6 +29,10 @@ struct MeshGeometry {
     // Give it a name so we can look it up by name.
     char const * name;
 
+    UINT vb_byte_stide;
+    UINT vb_byte_size;
+    UINT ib_byte_size;
+
     // System memory copies.  Use Blobs because the vertex/index format can be generic.
     // It is up to the client to cast appropriately.  
     ID3DBlob * vb_cpu;
@@ -44,7 +47,7 @@ struct MeshGeometry {
     // A MeshGeometry may store multiple geometries in one vertex/index buffer.
     // Use this container to define the Submesh geometries so we can draw
     // the Submeshes individually.
-    char const * submesh_names [MAX_SUBMESH_COUNT];
+    char const *    submesh_names [MAX_SUBMESH_COUNT];
     SubmeshGeometry submesh_geoms [MAX_SUBMESH_COUNT];
 };
 
@@ -52,8 +55,8 @@ D3D12_VERTEX_BUFFER_VIEW
 Mesh_GetVertexBufferView (MeshGeometry * mesh) {
     D3D12_VERTEX_BUFFER_VIEW vbv;
     vbv.BufferLocation = mesh->vb_gpu->GetGPUVirtualAddress();
-    vbv.StrideInBytes = 0;
-    vbv.SizeInBytes = 0;
+    vbv.StrideInBytes = mesh->vb_byte_stide;
+    vbv.SizeInBytes = mesh->vb_byte_size;
 
     return vbv;
 }
@@ -63,7 +66,7 @@ Mesh_GetIndexBufferView (MeshGeometry * mesh) {
     D3D12_INDEX_BUFFER_VIEW ibv;
     ibv.BufferLocation = mesh->ib_gpu->GetGPUVirtualAddress();
     ibv.Format = DXGI_FORMAT_R16_UINT;
-    ibv.SizeInBytes = 0;
+    ibv.SizeInBytes = mesh->ib_byte_size;
 
     return ibv;
 }
