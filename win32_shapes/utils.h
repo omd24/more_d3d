@@ -85,7 +85,7 @@ struct RenderItem {
     UINT start_index_loc;
     int base_vertex_loc;
 
-    MeshGeometry * geo;
+    MeshGeometry * geometry;
 };
 
 struct Vertex {
@@ -223,7 +223,7 @@ update_subresources(
                           (first_subresource != 0 || n_subresources != 1))), "validation failed!");
 
     BYTE * data;
-    HRESULT hr = intermediate->Map(0, NULL, reinterpret_cast<void**>(&data));
+    CHECK_AND_FAIL(intermediate->Map(0, NULL, reinterpret_cast<void**>(&data)));
 
     for (UINT i = 0; i < n_subresources; ++i) {
         if (row_sizes_in_byte[i] > (SIZE_T)-1) return 0;
@@ -492,7 +492,7 @@ create_sphere (float radius, GeomVertex out_vtx [], uint16_t out_idx []) {
     // -- Compute indices for top stack.  The top stack was written first to the vertex buffer and connects the top pole to the first ring.
 
     UINT32 _idx_cnt = 0;
-    for (UINT32 i = 1; i <= n_slice; ++i) {
+    for (UINT16 i = 1; i <= n_slice; ++i) {
         out_idx[_idx_cnt++] = 0;
         out_idx[_idx_cnt++] = i + 1;
         out_idx[_idx_cnt++] = i;
@@ -503,10 +503,10 @@ create_sphere (float radius, GeomVertex out_vtx [], uint16_t out_idx []) {
     // -- Offset the indices to the index of the first vertex in the first ring.
     // TODO(omid): fix this shenanigan 
     // This is just skipping the top pole vertex.
-    UINT32 base_index = 1;
-    UINT32 ring_vtx_cnt = n_slice + 1;
-    for (UINT32 i = 0; i < n_stack - 2; ++i) {
-        for (UINT32 j = 0; j < n_slice; ++j) {
+    UINT16 base_index = 1;
+    UINT16 ring_vtx_cnt = (UINT16)n_slice + 1;
+    for (UINT16 i = 0; i < n_stack - 2; ++i) {
+        for (UINT16 j = 0; j < n_slice; ++j) {
             out_idx[_idx_cnt++] = base_index + i * ring_vtx_cnt + j;
             out_idx[_idx_cnt++] = base_index + i * ring_vtx_cnt + j + 1;
             out_idx[_idx_cnt++] = base_index + (i + 1) * ring_vtx_cnt + j;
@@ -520,12 +520,12 @@ create_sphere (float radius, GeomVertex out_vtx [], uint16_t out_idx []) {
     // -- Compute indices for bottom stack.  The bottom stack was written last to the vertex buffer and connects the bottom pole to the bottom ring.
 
     // South pole vertex was added last.
-    UINT32 south_pole_index = n_vtx - 1;
+    UINT16 south_pole_index = (UINT16)n_vtx - 1;
 
     // offset the indices to the index of the first vertex in the last ring.
     base_index = south_pole_index - ring_vtx_cnt;
 
-    for (UINT32 i = 0; i < n_slice; ++i) {
+    for (UINT16 i = 0; i < n_slice; ++i) {
         out_idx[_idx_cnt++] = south_pole_index;
         out_idx[_idx_cnt++] = base_index + i;
         out_idx[_idx_cnt++] = base_index + i + 1;
@@ -584,11 +584,11 @@ create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex
 
     // Add one because we duplicate the first and last vertex per ring
     // since the texture coordinates are different.
-    UINT32 ring_vertex_count = n_slice + 1;
+    UINT16 ring_vertex_count = (UINT16)n_slice + 1;
 
     // Compute indices for each stack.
-    for (UINT32 i = 0; i < n_stack; ++i) {
-        for (UINT32 j = 0; j < n_slice; ++j) {
+    for (UINT16 i = 0; i < n_stack; ++i) {
+        for (UINT16 j = 0; j < n_slice; ++j) {
             out_idx[_idx_cnt++] = i * ring_vertex_count + j;
             out_idx[_idx_cnt++] = (i + 1) * ring_vertex_count + j;
             out_idx[_idx_cnt++] = (i + 1) * ring_vertex_count + j + 1;
@@ -600,7 +600,7 @@ create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex
     }
 
 #pragma region build cylinder top
-    UINT32 base_index_top = _vtx_cnt;
+    UINT16 base_index_top = _vtx_cnt;
     SIMPLE_ASSERT(441 == base_index_top, "wrong vtx count");
     float y1 = 0.5f * height;
     float dtheta = 2.0f * XM_PI / n_slice;

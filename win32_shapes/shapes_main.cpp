@@ -7,9 +7,6 @@
 
 #include <dxcapi.h>
 
-#include "./headers/dynarray.h"
-#include "utils.h"
-
 #if !defined(NDEBUG) && !defined(_DEBUG)
 #error "Define at least one."
 #elif defined(NDEBUG) && defined(_DEBUG)
@@ -27,6 +24,9 @@
 #pragma warning (disable: 6011)     // dereferencing a potentially null pointer
 #pragma warning (disable: 26495)    // not initializing struct members
 
+#include "./headers/dynarray.h"
+#include "utils.h"
+
 // Currently we overload the meaning of FrameCount to mean both the maximum
 // number of frames that will be queued to the GPU at a time, as well as the number
 // of back buffers in the DXGI swap chain. For the majority of applications, this
@@ -39,6 +39,13 @@
 // Need a FrameResource for each frame
 #define NUM_FRAME_RESOURCES     FRAME_COUNT
 #define MAX_RENDERITEM_COUNT    50
+
+enum SUBMESH_INDEX {
+    _BOX_ID,
+    _GRID_ID,
+    _SPHERE_ID,
+    _CYLINDER_ID
+};
 
 bool global_running;
 SceneContext global_scene_ctx;
@@ -77,7 +84,7 @@ struct D3DRenderContext {
     UINT                            render_items_count;
     RenderItem                      render_items[MAX_RENDERITEM_COUNT];
 
-    // TODO(omid): heap-alloc the mesh_geom
+    // TODO(omid): heap-alloc the mesh_geom and render_items
     MeshGeometry                    geom;
 
     // Synchronization stuff
@@ -115,7 +122,6 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     //Vertex      * vertices = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
     //uint16_t    * indices = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
 
-    // TODO(omid): use heap-allocating or DYN_ARRAY
     /*GeomVertex  box_vertices[_BOX_VTX_CNT];
     uint16_t    box_indices[_BOX_IDX_CNT];
     GeomVertex  grid_vertices[_GRID_VTX_CNT];
@@ -125,18 +131,18 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     GeomVertex  cylinder_vertices[_CYLINDER_VTX_CNT];
     uint16_t    cylinder_indices[_CYLINDER_IDX_CNT];*/
 
+    // box
     UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
     UINT bsz_id = bsz + sizeof(uint16_t) * _BOX_IDX_CNT;
-
+    // grid
     UINT gsz = bsz_id + sizeof(GeomVertex) * _GRID_VTX_CNT;
     UINT gsz_id = gsz + sizeof(uint16_t) * _GRID_IDX_CNT;
-
+    // sphere
     UINT ssz = gsz_id + sizeof(GeomVertex) * _SPHERE_VTX_CNT;
     UINT ssz_id = ssz + sizeof(uint16_t) * _SPHERE_IDX_CNT;
-
+    // cylinder
     UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
     UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT;
-
 
     GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(memory);
     uint16_t *      box_indices = reinterpret_cast<uint16_t *>(memory + bsz);
@@ -237,12 +243,8 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
 
     // -- Fill out render_ctx geom (output)
 
-#pragma warning (disable: 6387)
-
     D3DCreateBlob(vb_byte_size, &render_ctx->geom.vb_cpu);
     CopyMemory(render_ctx->geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
-
-#pragma warning (default: 6387)
 
     D3DCreateBlob(ib_byte_size, &render_ctx->geom.ib_cpu);
     CopyMemory(render_ctx->geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
@@ -254,14 +256,93 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     render_ctx->geom.vb_byte_size = vb_byte_size;
     render_ctx->geom.ib_byte_size = ib_byte_size;
 
-    render_ctx->geom.submesh_names[0] = "box";
-    render_ctx->geom.submesh_geoms[0] = box_submesh;
-    render_ctx->geom.submesh_names[1] = "grid";
-    render_ctx->geom.submesh_geoms[1] = grid_submesh;
-    render_ctx->geom.submesh_names[2] = "shpere";
-    render_ctx->geom.submesh_geoms[2] = sphere_submesh;
-    render_ctx->geom.submesh_names[3] = "cylinder";
-    render_ctx->geom.submesh_geoms[3] = cylinder_submesh;
+    render_ctx->geom.submesh_names[_BOX_ID] = "box";
+    render_ctx->geom.submesh_geoms[_BOX_ID] = box_submesh;
+    render_ctx->geom.submesh_names[_GRID_ID] = "grid";
+    render_ctx->geom.submesh_geoms[_GRID_ID] = grid_submesh;
+    render_ctx->geom.submesh_names[_SPHERE_ID] = "shpere";
+    render_ctx->geom.submesh_geoms[_SPHERE_ID] = sphere_submesh;
+    render_ctx->geom.submesh_names[_CYLINDER_ID] = "cylinder";
+    render_ctx->geom.submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
+}
+static void
+create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * count) {
+    // NOTE(omid): RenderItems elements 
+    /*
+        0: box
+        1: grid
+        2-22: cylinders and spheres
+    */
+
+    UINT _curr = 0;
+
+    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    render_items[_curr].obj_cbuffer_index = _curr;
+    render_items[_curr].geometry = geom;
+    render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_curr].index_count = geom->submesh_geoms[_BOX_ID].index_count;
+    render_items[_curr].start_index_loc = geom->submesh_geoms[_BOX_ID].start_index_location;
+    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_BOX_ID].base_vertex_location;
+    ++_curr;
+
+    render_items[_curr].world = Identity4x4();
+    render_items[_curr].obj_cbuffer_index = _curr;
+    render_items[_curr].geometry = geom;
+    render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_curr].index_count = geom->submesh_geoms[_GRID_ID].index_count;
+    render_items[_curr].start_index_loc = geom->submesh_geoms[_GRID_ID].start_index_location;
+    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_GRID_ID].base_vertex_location;
+    ++_curr;
+
+    for (int i = 0; i < 5; ++i) {
+        XMMATRIX left_cylinder_world = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i * 5.0f);
+        XMMATRIX right_cylinder_world = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i * 5.0f);
+
+        XMMATRIX left_sphere_world = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
+        XMMATRIX right_sphere_world = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
+
+        XMStoreFloat4x4(&render_items[_curr].world, right_cylinder_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        ++_curr;
+
+        XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        ++_curr;
+
+        XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        ++_curr;
+
+        XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        ++_curr;
+    }
+
+    *count = _curr;
+}
+static void
+draw_render_items (){
+    // -- indexed drawing
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx) {
@@ -1114,6 +1195,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // NOTE(omid): N.B. cmd_list is closed so mind the errors 
     /// for real project, first open cmd_list
     create_shape_geometry(memory, &render_ctx, vts, ids);
+    create_render_items(render_ctx.render_items, &render_ctx.geom, &render_ctx.render_items_count);
     Mesh_Dispose(&render_ctx.geom);
 #pragma endregion
 

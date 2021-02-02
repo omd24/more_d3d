@@ -44,7 +44,8 @@
         size_t * arr_ptr = ((size_t *)(arr)-2);     \
         arr_ptr[1] += size;   \
         arr_ptr = (size_t *)::realloc(arr_ptr, 2 * sizeof(size_t) + arr_ptr[1] * sizeof(*arr));    \
-        (arr) = (T *)&arr_ptr[2];    \
+        if (arr_ptr != 0) /*averting C28182 warning*/   \
+            (arr) = (T *)&arr_ptr[2];    \
     } while (0)
 
 #define DYN_ARRAY_PUSHBACK(T, arr, value)      \
@@ -57,7 +58,8 @@
             arr_ptr = (size_t *)::realloc(arr_ptr, 2 * sizeof(size_t) + arr_ptr[1] * sizeof(*arr));    \
             SIMPLE_ASSERT(arr_ptr,); \
         }   \
-        (arr) = (T *)&arr_ptr[2];    \
+        if (arr_ptr != 0) /*averting C28182 warning*/   \
+            (arr) = (T *)&arr_ptr[2];    \
         arr[arr_ptr[0]] = (value);      \
     } while (0)
 
