@@ -65,6 +65,7 @@ struct D3DRenderContext {
     ID3D12GraphicsCommandList *     bundle;
     UINT                            rtv_descriptor_size;
     UINT                            srv_cbv_descriptor_size;
+    UINT                            cbv_srv_uav_descriptor_size;
 
     ID3D12DescriptorHeap *          rtv_heap;
     // NOTE(omid): Instead of separate descriptor heap use one for both srv and cbv 
@@ -266,7 +267,7 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     render_ctx->geom.submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
 }
 static void
-create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * count) {
+create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out_count) {
     // NOTE(omid): RenderItems elements 
     /*
         0: box
@@ -279,7 +280,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * cou
     XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
     render_items[_curr].geometry = geom;
-    render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     render_items[_curr].index_count = geom->submesh_geoms[_BOX_ID].index_count;
     render_items[_curr].start_index_loc = geom->submesh_geoms[_BOX_ID].start_index_location;
     render_items[_curr].base_vertex_loc = geom->submesh_geoms[_BOX_ID].base_vertex_location;
@@ -288,7 +289,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * cou
     render_items[_curr].world = Identity4x4();
     render_items[_curr].obj_cbuffer_index = _curr;
     render_items[_curr].geometry = geom;
-    render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     render_items[_curr].index_count = geom->submesh_geoms[_GRID_ID].index_count;
     render_items[_curr].start_index_loc = geom->submesh_geoms[_GRID_ID].start_index_location;
     render_items[_curr].base_vertex_loc = geom->submesh_geoms[_GRID_ID].base_vertex_location;
@@ -304,7 +305,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * cou
         XMStoreFloat4x4(&render_items[_curr].world, right_cylinder_world);
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = geom;
-        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
@@ -313,7 +314,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * cou
         XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = geom;
-        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
@@ -322,7 +323,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * cou
         XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = geom;
-        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
@@ -331,18 +332,43 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * cou
         XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = geom;
-        render_items[_curr].PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
         ++_curr;
     }
 
-    *count = _curr;
+    *out_count = _curr;
 }
+// -- indexed drawing
 static void
-draw_render_items (){
-    // -- indexed drawing
+draw_render_items (
+    ID3D12GraphicsCommandList * cmd_list,
+    ID3D12DescriptorHeap * cbv_heap,
+    UINT64 descriptor_increment_size,
+    RenderItem render_items [],
+    UINT render_item_count,
+    UINT current_frame_index
+) {
+    UINT obj_cb_byte_size = sizeof(ObjectConstantBuffer);
+
+    for (size_t i = 0; i < render_item_count; ++i) {
+        D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
+        D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
+        cmd_list->IASetVertexBuffers(0, 1, &vbv);
+        cmd_list->IASetIndexBuffer(&ibv);
+        cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
+
+        // Offset to the CBV in the descriptor heap for this object and for this frame resource.
+        UINT cbv_index = current_frame_index * render_item_count + render_items[i].obj_cbuffer_index;
+        
+        D3D12_GPU_DESCRIPTOR_HANDLE cbv_handle = {};
+        cbv_handle.ptr = cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + cbv_index * descriptor_increment_size;
+
+        cmd_list->SetGraphicsRootDescriptorTable(0, cbv_handle);
+        cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
+    }
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx) {
@@ -1189,6 +1215,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 
 #pragma region test
+#if 0
     Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
     uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
     BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
@@ -1196,7 +1223,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     /// for real project, first open cmd_list
     create_shape_geometry(memory, &render_ctx, vts, ids);
     create_render_items(render_ctx.render_items, &render_ctx.geom, &render_ctx.render_items_count);
+    draw_render_items(render_ctx.direct_cmd_list, render_ctx.srv_cbv_heap, render_ctx.srv_cbv_descriptor_size, render_ctx.render_items, render_ctx.render_items_count, render_ctx.frame_index);
+    
     Mesh_Dispose(&render_ctx.geom);
+#endif
 #pragma endregion
 
 

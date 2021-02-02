@@ -78,7 +78,7 @@ struct RenderItem {
 
     // TODO(omid): add mesh/geometry data 
 
-    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType;
+    D3D12_PRIMITIVE_TOPOLOGY primitive_type;
 
     // DrawIndexedInstanced parameters.
     UINT index_count;
