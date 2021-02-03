@@ -18,8 +18,8 @@ using namespace DirectX;
 
 // -- per object constants
 struct ObjectConstantBuffer {
-    XMFLOAT4X4 world_view_proj;
-    float padding[48];             // Padding so the constant buffer is 256-byte aligned
+    XMFLOAT4X4 world;
+    float padding[48];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
 // -- per pass constants
@@ -31,14 +31,14 @@ struct PassConstantBuffer {
     XMFLOAT4X4 view_proj;
     XMFLOAT4X4 inverse_view_proj;
     XMFLOAT3 eye_posw;
-    float cbuffer_per_obj_pad1;
+    // float cbuffer_per_obj_pad1;
     XMFLOAT2 render_target_size;
     XMFLOAT2 inverse_render_target_size;
     float nearz;
     float farz;
     float total_time;
     float delta_time;
-    float padding[20];             // Padding so the constant buffer is 256-byte aligned
+    float padding[21];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
 
@@ -54,8 +54,13 @@ struct FrameResource {
 
     // We cannot update a cbuffer until the GPU is done processing the commands
     // that reference it.  So each frame needs their own cbuffers.
-    PassConstantBuffer * pass_cb;
-    ObjectConstantBuffer * object_cb;
+    ID3D12Resource * pass_cb;
+    PassConstantBuffer pass_cb_data;
+    uint8_t * pass_cb_data_ptr;
+
+    ID3D12Resource * obj_cb;
+    ObjectConstantBuffer obj_cb_data;
+    uint8_t * obj_cb_data_ptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.
@@ -71,7 +76,7 @@ struct RenderItem {
     // Because we have an object cbuffer for each FrameResource, we have to apply the
     // update to each FrameResource.  Thus, when we modify obect data we should set 
     // NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
-    int count_frames_dirty;
+    int n_frames_dirty;
 
     // Index into GPU constant buffer corresponding to the ObjectCB for this render item.
     UINT obj_cbuffer_index;
@@ -102,26 +107,6 @@ struct TextuVertex {
     XMFLOAT3 position;
     XMFLOAT2 uv;
 };
-struct SceneContext {
-    // camera settings (spherical coordinate)
-    float theta;
-    float phi;
-    float radius;
-
-    // mouse position
-    POINT mouse;
-
-    // world view projection matrices
-    DirectX::XMMATRIX world;
-    DirectX::XMMATRIX view;
-    DirectX::XMMATRIX proj;
-
-    // display-related data
-    UINT width;
-    UINT height;
-    float aspect_ratio;
-};
-
 static XMFLOAT4X4
 Identity4x4() {
     static XMFLOAT4X4 I(

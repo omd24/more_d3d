@@ -36,8 +36,10 @@
 // It should be noted that excessive buffering of frames dependent on user input
 // may result in noticeable latency in your app.
 #define FRAME_COUNT     2   // TODO(omid): check the inconsistant frame_count = 3 error after final gpu waiting, on "texture->release"
-// Need a FrameResource for each frame
+// TODO(omid): should FRAME_COUNT be SWAPCHAIN_BUFFER_COUNT? 
+// TODO(omid): NUM_FRAME_RESOURCE = FRAME_COUNT ?
 #define NUM_FRAME_RESOURCES     FRAME_COUNT
+// 
 #define MAX_RENDERITEM_COUNT    50
 
 enum SUBMESH_INDEX {
@@ -45,6 +47,26 @@ enum SUBMESH_INDEX {
     _GRID_ID,
     _SPHERE_ID,
     _CYLINDER_ID
+};
+
+struct SceneContext {
+    // camera settings (spherical coordinate)
+    float theta;
+    float phi;
+    float radius;
+
+    // mouse position
+    POINT mouse;
+
+    // world view projection matrices
+    XMFLOAT3   eye_pos;
+    XMFLOAT4X4 view;
+    XMFLOAT4X4 proj;
+
+    // display-related data
+    UINT width;
+    UINT height;
+    float aspect_ratio;
 };
 
 bool global_running;
@@ -70,6 +92,7 @@ struct D3DRenderContext {
     ID3D12DescriptorHeap *          rtv_heap;
     // NOTE(omid): Instead of separate descriptor heap use one for both srv and cbv 
     ID3D12DescriptorHeap *          srv_cbv_heap;
+    ID3D12DescriptorHeap *          cbv_heap;
 
     // App resources
     ID3D12Resource *                texture;
@@ -78,12 +101,13 @@ struct D3DRenderContext {
     D3D12_VERTEX_BUFFER_VIEW        vb_view;
     D3D12_INDEX_BUFFER_VIEW         ib_view;
     ID3D12Resource *                constant_buffer;
-    ObjectConstantBuffer            constant_buffer_data;
+    PassConstantBuffer              main_pass_constants;
     uint8_t *                       cbv_data_begin_ptr;
 
     // render items
     UINT                            render_items_count;
     RenderItem                      render_items[MAX_RENDERITEM_COUNT];
+    UINT                            pass_cbv_offset;
 
     // TODO(omid): heap-alloc the mesh_geom and render_items
     MeshGeometry                    geom;
@@ -362,7 +386,7 @@ draw_render_items (
 
         // Offset to the CBV in the descriptor heap for this object and for this frame resource.
         UINT cbv_index = current_frame_index * render_item_count + render_items[i].obj_cbuffer_index;
-        
+
         D3D12_GPU_DESCRIPTOR_HANDLE cbv_handle = {};
         cbv_handle.ptr = cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + cbv_index * descriptor_increment_size;
 
@@ -370,6 +394,149 @@ draw_render_items (
         cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
     }
 }
+//static void
+//create_descriptor_heaps (D3DRenderContext * render_ctx) {
+//    UINT obj_count = render_ctx->render_items_count;
+//
+//    // Need a CBV descriptor for each object for each frame resource,
+//    // +1 for the per-pass CBV for each frame resource.
+//    UINT n_descriptors = (obj_count + 1) * FRAME_COUNT;
+//
+//    // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
+//    render_ctx->pass_cbv_offset = obj_count * FRAME_COUNT;
+//
+//    D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
+//    cbv_heap_desc.NumDescriptors = n_descriptors;
+//    cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+//    cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+//    cbv_heap_desc.NodeMask = 0;
+//    render_ctx->device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx->cbv_heap));
+//}
+static void
+create_root_signature (ID3D12Device * device, ID3D12RootSignature * root_signature) {
+    D3D12_DESCRIPTOR_RANGE cbv_table0 = {};
+    cbv_table0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    cbv_table0.NumDescriptors = 1;
+    cbv_table0.BaseShaderRegister = 0;
+    cbv_table0.RegisterSpace = 0;
+    cbv_table0.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_DESCRIPTOR_RANGE cbv_table1 = {};
+    cbv_table1.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    cbv_table1.NumDescriptors = 1;
+    cbv_table1.BaseShaderRegister = 1;
+    cbv_table1.RegisterSpace = 0;
+    cbv_table1.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    // Root parameter can be a table, root descriptor or root constants.
+    D3D12_ROOT_PARAMETER slot_root_params[2] = {};
+    // Create root CBVs.
+    slot_root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    slot_root_params[0].DescriptorTable.pDescriptorRanges = &cbv_table0;
+    slot_root_params[0].DescriptorTable.NumDescriptorRanges = 1;
+    slot_root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    slot_root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    slot_root_params[1].DescriptorTable.pDescriptorRanges = &cbv_table1;
+    slot_root_params[1].DescriptorTable.NumDescriptorRanges = 1;
+    slot_root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    // A root signature is an array of root parameters.
+    D3D12_ROOT_SIGNATURE_DESC root_sig_desc = {};
+    root_sig_desc.NumParameters = 2;
+    root_sig_desc.pParameters = slot_root_params;
+    root_sig_desc.NumStaticSamplers = 0;
+    root_sig_desc.pStaticSamplers = nullptr;
+    root_sig_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+    // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
+    ID3DBlob * serialized_root_sig = nullptr;
+    ID3DBlob * error_blob = nullptr;
+    D3D12SerializeRootSignature(&root_sig_desc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized_root_sig, &error_blob);
+
+    if (error_blob) {
+        ::OutputDebugStringA((char*)error_blob->GetBufferPointer());
+    }
+
+    device->CreateRootSignature(0, serialized_root_sig->GetBufferPointer(), serialized_root_sig->GetBufferSize(), IID_PPV_ARGS(&error_blob));
+}
+//static void
+//create_psos (D3DRenderContext * render_ctx) {
+//    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
+//
+//    pso_desc.InputLayout = {.pInputElementDescs = mInputLayout.data(), (UINT)mInputLayout.size()};
+//    pso_desc.pRootSignature = mRootSignature.Get();
+//    pso_desc.VS =
+//    {
+//        reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
+//        mShaders["standardVS"]->GetBufferSize()
+//    };
+//    pso_desc.PS =
+//    {
+//        reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
+//        mShaders["opaquePS"]->GetBufferSize()
+//    };
+//    pso_desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+//    pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+//    pso_desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+//    pso_desc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+//    pso_desc.SampleMask = UINT_MAX;
+//    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+//    pso_desc.NumRenderTargets = 1;
+//    pso_desc.RTVFormats[0] = mBackBufferFormat;
+//    pso_desc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+//    pso_desc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+//    pso_desc.DSVFormat = mDepthStencilFormat;
+//    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&mPSOs["opaque"])));
+//}
+static void
+update_obj_cbuffers (D3DRenderContext * render_ctx) {
+    UINT frame_index = render_ctx->frame_index;
+    for (unsigned i = 0; i < render_ctx->render_items_count; i++) {
+        UINT obj_index = render_ctx->render_items[i].obj_cbuffer_index;
+        UINT cbuffer_size = sizeof(ObjectConstantBuffer);
+        // Only update the cbuffer data if the constants have changed.  
+        // This needs to be tracked per frame resource.
+        if (render_ctx->render_items[i].n_frames_dirty > 0) {
+            XMMATRIX world = XMLoadFloat4x4(&render_ctx->render_items[i].world);
+            ObjectConstantBuffer obj_cbuffer = {};
+            XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
+            uint8_t * obj_ptr = render_ctx->frame_resources[i].obj_cb_data_ptr + (obj_index * cbuffer_size);
+            memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
+
+            // Next FrameResource need to be updated too.
+            render_ctx->render_items[i].n_frames_dirty--;
+        }
+    }
+}
+static void
+update_pass_cbuffers (D3DRenderContext * render_ctx) {
+
+    XMMATRIX view = XMLoadFloat4x4(&global_scene_ctx.view);
+    XMMATRIX proj = XMLoadFloat4x4(&global_scene_ctx.proj);
+
+    XMMATRIX view_proj = XMMatrixMultiply(view, proj);
+    XMMATRIX inv_view = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX inv_proj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX inv_view_proj = XMMatrixInverse(&XMMatrixDeterminant(view_proj), view_proj);
+
+    XMStoreFloat4x4(&render_ctx->main_pass_constants.view, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&render_ctx->main_pass_constants.inverse_view, XMMatrixTranspose(inv_view));
+    XMStoreFloat4x4(&render_ctx->main_pass_constants.proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&render_ctx->main_pass_constants.inverse_proj, XMMatrixTranspose(inv_proj));
+    XMStoreFloat4x4(&render_ctx->main_pass_constants.view_proj, XMMatrixTranspose(view_proj));
+    XMStoreFloat4x4(&render_ctx->main_pass_constants.inverse_view_proj, XMMatrixTranspose(inv_view_proj));
+    render_ctx->main_pass_constants.eye_posw = global_scene_ctx.eye_pos;
+
+    render_ctx->main_pass_constants.render_target_size = XMFLOAT2((float)global_scene_ctx.width, (float)global_scene_ctx.height);
+    render_ctx->main_pass_constants.inverse_render_target_size = XMFLOAT2(1.0f / global_scene_ctx.width, 1.0f / global_scene_ctx.height);
+    render_ctx->main_pass_constants.nearz = 1.0f;
+    render_ctx->main_pass_constants.farz = 1000.0f;
+
+    uint8_t * pass_ptr = render_ctx->frame_resources[render_ctx->frame_index].pass_cb_data_ptr;
+    memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstantBuffer));
+}
+
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx) {
     HRESULT ret = E_FAIL;
@@ -414,27 +581,6 @@ wait_for_gpu (D3DRenderContext * render_ctx) {
 
     return ret;
 }
-static void
-update_constant_buffer(D3DRenderContext * render_ctx) {
-
-    using namespace DirectX;
-
-    // Convert Spherical to Cartesian coordinates.
-    float x = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * cosf(global_scene_ctx.theta);
-    float z = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * sinf(global_scene_ctx.theta);
-    float y = global_scene_ctx.radius * cosf(global_scene_ctx.phi);
-
-    // Build the view matrix.
-    XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
-    XMVECTOR target = XMVectorZero();
-    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    global_scene_ctx.view = XMMatrixLookAtLH(pos, target, up);
-
-    XMMATRIX world_view_proj = global_scene_ctx.world * global_scene_ctx.view * global_scene_ctx.proj;
-    XMStoreFloat4x4(&render_ctx->constant_buffer_data.world_view_proj, XMMatrixTranspose(world_view_proj));
-
-    memcpy(render_ctx->cbv_data_begin_ptr, &render_ctx->constant_buffer_data, sizeof(render_ctx->constant_buffer_data));
-}
 static D3D12_RESOURCE_BARRIER
 create_barrier (ID3D12Resource * resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
     D3D12_RESOURCE_BARRIER barrier = {};
@@ -449,7 +595,10 @@ create_barrier (ID3D12Resource * resource, D3D12_RESOURCE_STATES before, D3D12_R
 static HRESULT
 render_stuff (D3DRenderContext * render_ctx) {
 
-    HRESULT ret = E_FAIL;
+    ... DRAW
+
+
+        HRESULT ret = E_FAIL;
     UINT frame_index = render_ctx->frame_index;
 
     // Populate command list
@@ -682,6 +831,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.scissor_rect.right = global_scene_ctx.width;
     render_ctx.scissor_rect.bottom = global_scene_ctx.height;
 
+    render_ctx.cbv_srv_uav_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
     // Query Adapter (PhysicalDevice)
     IDXGIFactory * dxgi_factory = nullptr;
     CHECK_AND_FAIL(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgi_factory)));
@@ -747,6 +898,21 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // ========================================================================================================
 #pragma region Descriptors
     // -- create descriptor heaps
+    UINT obj_count = render_ctx.render_items_count;
+
+    // Need a CBV descriptor for each object for each frame resource,
+    // +1 for the per-pass CBV for each frame resource.
+    UINT n_descriptors = (obj_count + 1) * FRAME_COUNT;
+
+    // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
+    render_ctx.pass_cbv_offset = obj_count * FRAME_COUNT;
+
+    D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
+    cbv_heap_desc.NumDescriptors = n_descriptors;
+    cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    cbv_heap_desc.NodeMask = 0;
+    render_ctx.device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx.cbv_heap));
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
@@ -755,22 +921,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     CHECK_AND_FAIL(render_ctx.device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx.rtv_heap)));
 
-    // NOTE(omid): We create a single descriptor heap for both SRV and CBV 
-    // -- A shader resource view (SRV) for the texture      (index 0 of srv_cbv_heap) 
-    // -- A constant buffer view (CBV) for word_view_proj   (index 1 of srv_cbv_heap) 
-
-    // Create srv_cbv_heap for SRV and CBV
-    // Flags indicate that this descriptor heap can be bound to the pipeline
-    // and that descriptors contained in it can be referenced by a root table
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
-    heap_desc.NumDescriptors = 2;
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    CHECK_AND_FAIL(render_ctx.device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&render_ctx.srv_cbv_heap)));
-
 #pragma endregion Descriptors
 
-        // -- create frame resources: a rtv and a cmd-allocator for each frame
+        // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
     render_ctx.rtv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx.rtv_heap->GetCPUDescriptorHandleForHeapStart();
     for (UINT i = 0; i < FRAME_COUNT; ++i) {
@@ -783,6 +936,55 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // -- create a cmd-allocator for each frame
         res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.frame_resources[i].cmd_list_alloc));
 
+        // -- create cbuffers as upload_buffer
+
+        // 1. per obj cbuffer
+        {
+            UINT obj_cb_size = sizeof(ObjectConstantBuffer);
+            create_upload_buffer(render_ctx.device, obj_cb_size, &render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb);
+            // Initialize cb data
+            ::memcpy(render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb_data, sizeof(render_ctx.frame_resources[i].obj_cb_data));
+
+            // create constant buffer view.
+            for (UINT j = 0; j < render_ctx.render_items_count; ++j) {
+                D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].obj_cb->GetGPUVirtualAddress();
+
+                // Offset to the ith object constant buffer in the buffer.
+                cb_address += j * obj_cb_size;
+
+                // Offset to the object cbv in the descriptor heap.
+                int heap_index = i * render_ctx.render_items_count + j;
+
+                D3D12_CPU_DESCRIPTOR_HANDLE cbv_handle = {};
+                cbv_handle.ptr = render_ctx.cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + heap_index * (UINT64)render_ctx.cbv_srv_uav_descriptor_size;
+
+                D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
+                cbv_desc.BufferLocation = cb_address;
+                cbv_desc.SizeInBytes = obj_cb_size;
+
+                render_ctx.device->CreateConstantBufferView(&cbv_desc, cbv_handle);
+            }
+        }
+        // 2. per pass cbuffer
+        {
+            UINT pass_cb_size = sizeof(PassConstantBuffer);
+            create_upload_buffer(render_ctx.device, pass_cb_size, &render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb);
+            // Initialize cb data
+            ::memcpy(render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb_data, sizeof(render_ctx.frame_resources[i].pass_cb_data));
+
+            D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].pass_cb->GetGPUVirtualAddress();
+
+            // Offset to the pass cbv in the descriptor heap.
+            int heap_index = render_ctx.pass_cbv_offset + i;
+            D3D12_CPU_DESCRIPTOR_HANDLE handle = {};
+            handle.ptr = render_ctx.cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + heap_index * (UINT64)render_ctx.cbv_srv_uav_descriptor_size;
+
+            D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
+            cbv_desc.BufferLocation = cb_address;
+            cbv_desc.SizeInBytes = pass_cb_size;
+
+            render_ctx.device->CreateConstantBufferView(&cbv_desc, handle);
+        }
     }
 
     // Create bundle allocator
@@ -792,88 +994,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     // ========================================================================================================
 #pragma region Root Signature
-    // Create root signature
-    D3D12_FEATURE_DATA_ROOT_SIGNATURE feature_data = {};
-    feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-    if (FAILED(render_ctx.device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &feature_data, 1))) {
-        feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
-        ::printf("root signature version 1_1 is not supported, switched to 1_0!");
-    }
-
-    D3D12_DESCRIPTOR_RANGE1 ranges[2] = {};
-
-    // -- define a range of srv descriptor(s)
-    ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[0].NumDescriptors = 1;
-    ranges[0].BaseShaderRegister = 0;
-    ranges[0].RegisterSpace = 0;
-    ranges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
-    ranges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-    // -- define a range of cbv descriptor(s)
-    ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-    ranges[1].NumDescriptors = 1;
-    ranges[1].BaseShaderRegister = 0;
-    ranges[1].RegisterSpace = 0;
-    ranges[1].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
-    ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-    // NOTE(omid): descriptor tables are ranges in a descriptor heap
-
-    D3D12_ROOT_PARAMETER1 root_paramters[2] = {};
-
-    // -- srv parameter space (s0)
-    root_paramters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    root_paramters[0].DescriptorTable.NumDescriptorRanges = 1;
-    root_paramters[0].DescriptorTable.pDescriptorRanges = &ranges[0];
-    root_paramters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
-    // -- cbv parameter space (b0)
-    root_paramters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    root_paramters[1].DescriptorTable.NumDescriptorRanges = 1;
-    root_paramters[1].DescriptorTable.pDescriptorRanges = &ranges[1];
-    root_paramters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-
-    D3D12_STATIC_SAMPLER_DESC sampler = {};
-    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-    sampler.MipLODBias = 0;
-    sampler.MaxAnisotropy = 0;
-    sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-    sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-    sampler.MinLOD = 0.0f;
-    sampler.MaxLOD = D3D12_FLOAT32_MAX;
-    sampler.ShaderRegister = 0;
-    sampler.RegisterSpace = 0;
-    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
-    D3D12_ROOT_SIGNATURE_FLAGS root_signature_flags =
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
-        //D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
-
-    D3D12_ROOT_SIGNATURE_DESC1 root_desc1 = {};
-    root_desc1.NumParameters = ARRAY_COUNT(root_paramters);
-    root_desc1.pParameters = &root_paramters[0];
-    root_desc1.NumStaticSamplers = 1;
-    root_desc1.pStaticSamplers = &sampler;
-    root_desc1.Flags = root_signature_flags;
-
-    D3D12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc = {};
-    root_signature_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
-    root_signature_desc.Desc_1_1 = root_desc1;
-
-    ID3DBlob * signature_blob = nullptr;
-    ID3DBlob * signature_error_blob = nullptr;
-
-    CHECK_AND_FAIL(D3D12SerializeVersionedRootSignature(&root_signature_desc, &signature_blob, &signature_error_blob));
-
-    CHECK_AND_FAIL(render_ctx.device->CreateRootSignature(0, signature_blob->GetBufferPointer(), signature_blob->GetBufferSize(), IID_PPV_ARGS(&render_ctx.root_signature)));
-
+    create_root_signature(render_ctx.device, render_ctx.root_signature);
 #pragma endregion Root Signature
 
     // Load and compile shaders
@@ -935,8 +1056,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     input_desc[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 
     input_desc[1] = {};
-    input_desc[1].SemanticName = "TEXCOORD";
-    input_desc[1].Format = DXGI_FORMAT_R32G32_FLOAT;
+    input_desc[1].SemanticName = "COLOR";
+    input_desc[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     input_desc[1].AlignedByteOffset = 12; // bc of the position byte-size
     input_desc[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 
@@ -957,7 +1078,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     def_blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
     D3D12_RASTERIZER_DESC def_rasterizer_desc = {};
-    def_rasterizer_desc.FillMode = D3D12_FILL_MODE_SOLID;
+    def_rasterizer_desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
     def_rasterizer_desc.CullMode = D3D12_CULL_MODE_BACK;
     def_rasterizer_desc.FrontCounterClockwise = false;
     def_rasterizer_desc.DepthBias = 0;
@@ -978,6 +1099,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     pso_desc.RasterizerState = def_rasterizer_desc;
     pso_desc.DepthStencilState.StencilEnable = FALSE;
     pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     pso_desc.InputLayout.pInputElementDescs = input_desc;
     pso_desc.InputLayout.NumElements = ARRAY_COUNT(input_desc);
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -1005,7 +1127,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     // Create VB as an upload buffer
     uint8_t * vertex_data = nullptr;
-    create_upload_buffer(render_ctx.device, vb_size, &vertex_data, &render_ctx.vertex_buffer);
+    UINT64 total_size = render_ctx.render_items_count * vb_size;
+    create_upload_buffer(render_ctx.device, total_size, &vertex_data, &render_ctx.vertex_buffer);
     // Copy vertex data to vertex buffer
     memcpy(vertex_data, vertices, vb_size);
 
@@ -1139,25 +1262,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     ID3D12CommandList * cmd_lists [] = {render_ctx.direct_cmd_list};
     render_ctx.cmd_queue->ExecuteCommandLists(ARRAY_COUNT(cmd_lists), cmd_lists);
 
-#pragma region Create Constant Buffer
-    // Create constant buffer as upload buffer
-    const UINT cb_size = sizeof(ObjectConstantBuffer);    // CB size is required to be 256-byte aligned.
-    create_upload_buffer(render_ctx.device, cb_size, &render_ctx.cbv_data_begin_ptr, &render_ctx.constant_buffer);
-
-    // Describe and create a constant buffer view.
-    render_ctx.srv_cbv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    D3D12_CPU_DESCRIPTOR_HANDLE cbv_cpu_handle = {};
-    cbv_cpu_handle.ptr = render_ctx.srv_cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + (UINT64)render_ctx.srv_cbv_descriptor_size;
-    D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
-    cbv_desc.BufferLocation = render_ctx.constant_buffer->GetGPUVirtualAddress();
-    cbv_desc.SizeInBytes = cb_size;
-    render_ctx.device->CreateConstantBufferView(&cbv_desc, cbv_cpu_handle);
-
-    // Initialize cb data
-    ::memcpy(render_ctx.cbv_data_begin_ptr, &render_ctx.constant_buffer_data, sizeof(render_ctx.constant_buffer_data));
-
-#pragma endregion Create Constant Buffer
-
 
 #pragma region Bundle
     // -- create and record the bundle
@@ -1224,7 +1328,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     create_shape_geometry(memory, &render_ctx, vts, ids);
     create_render_items(render_ctx.render_items, &render_ctx.geom, &render_ctx.render_items_count);
     draw_render_items(render_ctx.direct_cmd_list, render_ctx.srv_cbv_heap, render_ctx.srv_cbv_descriptor_size, render_ctx.render_items, render_ctx.render_items_count, render_ctx.frame_index);
-    
+
     Mesh_Dispose(&render_ctx.geom);
 #endif
 #pragma endregion
@@ -1265,10 +1369,11 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     pixel_shader_code->Release();
     vertex_shader_code->Release();
 
-    render_ctx.root_signature->Release();
+    // TODO(omid): release blobs 
+    /*render_ctx.root_signature->Release();
     if (signature_error_blob)
         signature_error_blob->Release();
-    signature_blob->Release();
+    signature_blob->Release();*/
 
     render_ctx.bundle_allocator->Release();
 

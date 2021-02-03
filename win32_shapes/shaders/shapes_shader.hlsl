@@ -1,29 +1,40 @@
-//cbuffer SceneConstantBuffer : register(b0) {
-//    float4 offset;
-//    float4 padding [15];
-//}
 cbuffer PerObjectConstantBuffer : register(b0) {
-    float4x4 global_world_view_proj;
+    float4x4 global_world;
 }
-struct PixelShaderInput {
-    float4 position : SV_Position;
-    float2 uv : TEXCOORD;
+cbuffer PerPassConstantBuffer : register(b1) {
+    float4x4 global_view;
+    float4x4 global_inv_view;
+    float4x4 global_proj;
+    float4x4 global_inv_proj;
+    float4x4 global_view_proj;
+    float4x4 global_inv_view_proj;
+    float4x4 global_eye_pos_w;
+    //float4x4 cb_per_obj_padding;
+    float4x4 global_render_target_size;
+    float4x4 global_inv_render_target_size;
+    float4x4 global_near_z;
+    float4x4 global_far_z;
+    float4x4 global_total_time;
+    float4x4 global_delta_time;
+}
+struct VertexShaderInput {
+    float3 pos_local  : POSITION;
+    float4 color : COLOR;
 };
-
-Texture2D global_texture : register(t0);
-SamplerState global_sampler : register(s0);
-
-PixelShaderInput
-VertexShader_Main (float3 p : POSITION, float2 uv : TEXCOORD) {
-    PixelShaderInput result;
-    //result.position = p + offset;       // apply offset from cbuffer
-    result.position = mul(float4(p, 1.0f), global_world_view_proj);
-    result.uv = uv;
-    return result;
+struct VertexShaderOutput {
+    float3 pos_homogenous_clip_space : SV_Position;
+    float4 color : COLOR;
+};
+VertexShaderOutput
+VertexShader_Main (VertexShaderInput vin) {
+    VertexShaderOutput res;
+    float4 pos_world = mul(float4(vin.pos_local, 1.0f), global_world);
+    res.pos_homogenous_clip_space = mul(pos_world, global_view_proj);
+    res.color = vin.color;
+    return res;
 }
-
 float4
-PixelShader_Main (PixelShaderInput input) : SV_Target {
-    return global_texture.Sample(global_sampler, input.uv);
+PixelShader_Main (VertexShaderOutput pin) : SV_Target {
+    return pin.color;
 }
 
