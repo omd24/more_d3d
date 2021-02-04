@@ -28,7 +28,7 @@
 // available.
 // It should be noted that excessive buffering of frames dependent on user input
 // may result in noticeable latency in your app.
-#define FRAME_COUNT 2
+#define FRAME_COUNT 3
 
 bool global_running;
 SceneContext global_scene_ctx;

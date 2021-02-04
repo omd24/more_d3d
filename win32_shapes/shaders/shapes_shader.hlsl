@@ -22,7 +22,7 @@ struct VertexShaderInput {
     float4 color : COLOR;
 };
 struct VertexShaderOutput {
-    float3 pos_homogenous_clip_space : SV_Position;
+    float4 pos_homogenous_clip_space : SV_Position;
     float4 color : COLOR;
 };
 VertexShaderOutput

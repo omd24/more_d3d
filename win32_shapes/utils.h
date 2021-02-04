@@ -884,30 +884,4 @@ generate_checkerboard_pattern (
     }
     return ret;
 }
-static void
-handle_mouse_move(SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
-    if ((wParam & MK_LBUTTON) != 0) {
-        // make each pixel correspond to a quarter of a degree
-        float dx = DirectX::XMConvertToRadians(0.25f * (float)(x - scene_ctx->mouse.x));
-        float dy = DirectX::XMConvertToRadians(0.25f * (float)(y - scene_ctx->mouse.y));
 
-        // update angles (to orbit camera around)
-        scene_ctx->theta += dx;
-        scene_ctx->phi += dy;
-
-        // clamp phi
-        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
-    } else if ((wParam & MK_RBUTTON) != 0) {
-        // make each pixel correspond to a 0.005 unit in scene
-        float dx = 0.005f * (float)(x - scene_ctx->mouse.x);
-        float dy = 0.005f * (float)(y - scene_ctx->mouse.y);
-
-        // update camera radius
-        scene_ctx->radius += dx - dy;
-
-        // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 3.0f, 15.0f);
-    }
-    scene_ctx->mouse.x = x;
-    scene_ctx->mouse.y = y;
-}
