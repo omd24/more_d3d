@@ -544,6 +544,7 @@ move_to_next_frame (D3DRenderContext * render_ctx) {
 
     // -- 2. update frame index
     render_ctx->frame_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
+    //render_ctx->frame_index = (render_ctx->frame_index + 1) % NUM_FRAME_RESOURCES;
 
     // -- 3. if the next frame is not ready to be rendered yet, wait until it is ready
     if (render_ctx->fence->GetCompletedValue() < render_ctx->frame_resources[frame_index].fence) {
@@ -841,7 +842,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // ========================================================================================================
 #pragma region Descriptors
     // -- create descriptor heaps
-    UINT obj_count = render_ctx.render_items_count;
+    // TODO(omid): render_ctx.render_items_count is not usable yet 
+    UINT obj_count = 22;
 
     // Need a CBV descriptor for each object for each frame resource,
     // +1 for the per-pass CBV for each frame resource.
@@ -990,6 +992,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma endregion Compile Shaders
 
+
 #pragma region PSO Creation
     // Create vertex-input-layout Elements
     D3D12_INPUT_ELEMENT_DESC input_desc[2];
@@ -1058,6 +1061,18 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, current_alloc, render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list));
     }
 #pragma endregion PSO Creation
+
+
+#pragma region Shapes and RenderItems Creation
+
+    Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
+    uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
+
+    create_shape_geometry(memory, &render_ctx, vts, ids);
+    create_render_items(render_ctx.render_items, &render_ctx.geom, &render_ctx.render_items_count);
+
+#pragma endregion Shapes and RenderItems Creation
 
 // TODO(omid): VB and IB should also use a default_heap (not upload heap), similar to the texture. 
 #pragma region Create Vertex Buffer and Index Buffer
@@ -1164,10 +1179,11 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_pass_cbuffers(&render_ctx);
         update_obj_cbuffers(&render_ctx);
 
+        CHECK_AND_FAIL(move_to_next_frame(&render_ctx));
+
         // OnRender() aka rendering
         CHECK_AND_FAIL(draw_main(&render_ctx));
 
-        CHECK_AND_FAIL(move_to_next_frame(&render_ctx));
     }
 #pragma endregion Main_Loop
 
@@ -1261,5 +1277,5 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma endregion Cleanup_And_Debug
 
     return 0;
-}
+    }
 
