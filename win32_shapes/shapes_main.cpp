@@ -368,7 +368,7 @@ draw_render_items (
     UINT current_frame_index
 ) {
     UINT obj_cb_byte_size = sizeof(ObjectConstantBuffer);
-
+    current_frame_index = (current_frame_index + 1) % FRAME_COUNT;
     for (size_t i = 0; i < render_item_count; ++i) {
         D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
         D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
@@ -533,9 +533,10 @@ update_pass_cbuffers (D3DRenderContext * render_ctx) {
 }
 
 static HRESULT
-move_to_next_frame (D3DRenderContext * render_ctx) {
+move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index) {
+
     HRESULT ret = E_FAIL;
-    UINT frame_index = render_ctx->frame_index;
+    UINT frame_index = *out_frame_index;
 
     // -- 1. schedule a signal command in the queue
     UINT64 const current_fence_value = render_ctx->frame_resources[frame_index].fence;
@@ -543,7 +544,7 @@ move_to_next_frame (D3DRenderContext * render_ctx) {
     CHECK_AND_FAIL(ret);
 
     // -- 2. update frame index
-    render_ctx->frame_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
+    *out_frame_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
     //render_ctx->frame_index = (render_ctx->frame_index + 1) % NUM_FRAME_RESOURCES;
 
     // -- 3. if the next frame is not ready to be rendered yet, wait until it is ready
@@ -608,20 +609,11 @@ draw_main (D3DRenderContext * render_ctx) {
     ret = render_ctx->direct_cmd_list->Reset(render_ctx->frame_resources[frame_index].cmd_list_alloc, render_ctx->pso);
     CHECK_AND_FAIL(ret);
 
-    ID3D12DescriptorHeap * heaps [] = {render_ctx->cbv_heap};
-    render_ctx->direct_cmd_list->SetDescriptorHeaps(ARRAY_COUNT(heaps), heaps);
 
-    // -- set root_signature, viewport and scissor
-    render_ctx->direct_cmd_list->SetGraphicsRootSignature(render_ctx->root_signature);
+
+    // -- set viewport and scissor
     render_ctx->direct_cmd_list->RSSetViewports(1, &render_ctx->viewport);
     render_ctx->direct_cmd_list->RSSetScissorRects(1, &render_ctx->scissor_rect);
-
-    int pass_cbv_index = render_ctx->pass_cbv_offset + frame_index;
-    D3D12_GPU_DESCRIPTOR_HANDLE pass_cbv_handle = {};
-    pass_cbv_handle.ptr = render_ctx->cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + pass_cbv_index * (UINT64)render_ctx->cbv_srv_uav_descriptor_size;
-    render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, pass_cbv_handle);
-
-    draw_render_items(render_ctx->direct_cmd_list, render_ctx->cbv_heap, render_ctx->cbv_srv_uav_descriptor_size, render_ctx->render_items, render_ctx->render_items_count, frame_index);
 
     // -- indicate that the backbuffer will be used as the render target
     D3D12_RESOURCE_BARRIER barrier1 = create_barrier(render_ctx->frame_resources[frame_index].render_target, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -631,13 +623,21 @@ draw_main (D3DRenderContext * render_ctx) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
     // -- apply initial offset
     rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->frame_index) * INT64(render_ctx->rtv_descriptor_size));
-    render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
-
-    // -- record command(s)
-
-    // NOTE(omid): We can't use any "clear" method with bundles, so we use the command-list itself to clear rtv
     float clear_colors [] = {0.2f, 0.3f, 0.5f, 1.0f};
     render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, clear_colors, 0, nullptr);
+    render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
+
+    ID3D12DescriptorHeap * heaps [] = {render_ctx->cbv_heap};
+    render_ctx->direct_cmd_list->SetDescriptorHeaps(ARRAY_COUNT(heaps), heaps);
+
+    render_ctx->direct_cmd_list->SetGraphicsRootSignature(render_ctx->root_signature);
+
+    int pass_cbv_index = render_ctx->pass_cbv_offset + frame_index;
+    D3D12_GPU_DESCRIPTOR_HANDLE pass_cbv_handle = {};
+    pass_cbv_handle.ptr = render_ctx->cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + pass_cbv_index * (UINT64)render_ctx->cbv_srv_uav_descriptor_size;
+    render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, pass_cbv_handle);
+
+    draw_render_items(render_ctx->direct_cmd_list, render_ctx->cbv_heap, render_ctx->cbv_srv_uav_descriptor_size, render_ctx->render_items, render_ctx->render_items_count, frame_index);
 
     // -- indicate that the backbuffer will now be used to present
     D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->frame_resources[frame_index].render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -871,6 +871,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
     render_ctx.rtv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx.rtv_heap->GetCPUDescriptorHandleForHeapStart();
+
+    UINT obj_cb_size = sizeof(ObjectConstantBuffer);
+    UINT pass_cb_size = sizeof(PassConstantBuffer);
+
     for (UINT i = 0; i < FRAME_COUNT; ++i) {
         CHECK_AND_FAIL(render_ctx.swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx.frame_resources[i].render_target)));
 
@@ -882,23 +886,27 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.frame_resources[i].cmd_list_alloc));
 
         // -- create cbuffers as upload_buffer
+        create_upload_buffer(render_ctx.device, obj_cb_size * obj_count, &render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb);
+        // Initialize cb data
+        ::memcpy(render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb_data, sizeof(render_ctx.frame_resources[i].obj_cb_data));
 
+        create_upload_buffer(render_ctx.device, pass_cb_size, &render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb);
+        // Initialize cb data
+        ::memcpy(render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb_data, sizeof(render_ctx.frame_resources[i].pass_cb_data));
+    }
+
+    for (UINT i = 0; i < FRAME_COUNT; ++i) {
         // 1. per obj cbuffer
         {
-            UINT obj_cb_size = sizeof(ObjectConstantBuffer);
-            create_upload_buffer(render_ctx.device, obj_cb_size, &render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb);
-            // Initialize cb data
-            ::memcpy(render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb_data, sizeof(render_ctx.frame_resources[i].obj_cb_data));
-
             // create constant buffer view.
-            for (UINT j = 0; j < render_ctx.render_items_count; ++j) {
+            for (UINT j = 0; j < obj_count; ++j) {
                 D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].obj_cb->GetGPUVirtualAddress();
 
                 // Offset to the ith object constant buffer in the buffer.
                 cb_address += j * obj_cb_size;
 
                 // Offset to the object cbv in the descriptor heap.
-                int heap_index = i * render_ctx.render_items_count + j;
+                int heap_index = i * obj_count + j;
 
                 D3D12_CPU_DESCRIPTOR_HANDLE cbv_handle = {};
                 cbv_handle.ptr = render_ctx.cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + heap_index * (UINT64)render_ctx.cbv_srv_uav_descriptor_size;
@@ -912,11 +920,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         }
         // 2. per pass cbuffer
         {
-            UINT pass_cb_size = sizeof(PassConstantBuffer);
-            create_upload_buffer(render_ctx.device, pass_cb_size, &render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb);
-            // Initialize cb data
-            ::memcpy(render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb_data, sizeof(render_ctx.frame_resources[i].pass_cb_data));
-
             D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].pass_cb->GetGPUVirtualAddress();
 
             // Offset to the pass cbv in the descriptor heap.
@@ -1147,6 +1150,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     //----------------
     // Create fence
     // create synchronization objects and wait until assets have been uploaded to the GPU.
+
+
     UINT frame_index = render_ctx.frame_index;
     CHECK_AND_FAIL(render_ctx.device->CreateFence(render_ctx.frame_resources[frame_index].fence, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&render_ctx.fence)));
 
@@ -1179,11 +1184,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_pass_cbuffers(&render_ctx);
         update_obj_cbuffers(&render_ctx);
 
-        CHECK_AND_FAIL(move_to_next_frame(&render_ctx));
-
         // OnRender() aka rendering
         CHECK_AND_FAIL(draw_main(&render_ctx));
 
+        CHECK_AND_FAIL(move_to_next_frame(&render_ctx, &render_ctx.frame_index));
     }
 #pragma endregion Main_Loop
 
@@ -1277,5 +1281,5 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma endregion Cleanup_And_Debug
 
     return 0;
-    }
+}
 
