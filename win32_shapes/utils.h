@@ -31,14 +31,14 @@ struct PassConstantBuffer {
     XMFLOAT4X4 view_proj;
     XMFLOAT4X4 inverse_view_proj;
     XMFLOAT3 eye_posw;
-    // float cbuffer_per_obj_pad1;
+    float cbuffer_per_obj_pad1;
     XMFLOAT2 render_target_size;
     XMFLOAT2 inverse_render_target_size;
     float nearz;
     float farz;
     float total_time;
     float delta_time;
-    float padding[21];  // Padding so the constant buffer is 256-byte aligned
+    float padding[20];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
 

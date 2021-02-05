@@ -300,6 +300,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out
     render_items[_curr].index_count = geom->submesh_geoms[_BOX_ID].index_count;
     render_items[_curr].start_index_loc = geom->submesh_geoms[_BOX_ID].start_index_location;
     render_items[_curr].base_vertex_loc = geom->submesh_geoms[_BOX_ID].base_vertex_location;
+    render_items[_curr].n_frames_dirty = FRAME_COUNT;
     ++_curr;
 
     render_items[_curr].world = Identity4x4();
@@ -309,6 +310,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out
     render_items[_curr].index_count = geom->submesh_geoms[_GRID_ID].index_count;
     render_items[_curr].start_index_loc = geom->submesh_geoms[_GRID_ID].start_index_location;
     render_items[_curr].base_vertex_loc = geom->submesh_geoms[_GRID_ID].base_vertex_location;
+    render_items[_curr].n_frames_dirty = FRAME_COUNT;
     ++_curr;
 
     for (int i = 0; i < 5; ++i) {
@@ -325,6 +327,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out
         render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = FRAME_COUNT;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
@@ -334,6 +337,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out
         render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = FRAME_COUNT;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
@@ -343,6 +347,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out
         render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = FRAME_COUNT;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
@@ -352,6 +357,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out
         render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = FRAME_COUNT;
         ++_curr;
     }
 
@@ -481,6 +487,22 @@ create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signat
 //    pso_desc.DSVFormat = mDepthStencilFormat;
 //    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&mPSOs["opaque"])));
 //}
+
+static void
+update_camera () {
+    // Convert Spherical to Cartesian coordinates.
+    global_scene_ctx.eye_pos.x = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * cosf(global_scene_ctx.theta);
+    global_scene_ctx.eye_pos.z = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * sinf(global_scene_ctx.theta);
+    global_scene_ctx.eye_pos.y = global_scene_ctx.radius * cosf(global_scene_ctx.phi);
+
+    // Build the view matrix.
+    XMVECTOR pos = XMVectorSet(global_scene_ctx.eye_pos.x, global_scene_ctx.eye_pos.y, global_scene_ctx.eye_pos.z, 1.0f);
+    XMVECTOR target = XMVectorZero();
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+    XMStoreFloat4x4(&global_scene_ctx.view, view);
+}
 static void
 update_obj_cbuffers (D3DRenderContext * render_ctx) {
     UINT frame_index = render_ctx->frame_index;
@@ -493,7 +515,7 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
             XMMATRIX world = XMLoadFloat4x4(&render_ctx->render_items[i].world);
             ObjectConstantBuffer obj_cbuffer = {};
             XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
-            uint8_t * obj_ptr = render_ctx->frame_resources[i].obj_cb_data_ptr + (obj_index * cbuffer_size);
+            uint8_t * obj_ptr = render_ctx->frame_resources[frame_index].obj_cb_data_ptr + (obj_index * cbuffer_size);
             memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
 
             // Next FrameResource need to be updated too.
@@ -1181,6 +1203,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
             DispatchMessageA(&msg);
         }
         // OnUpdate()
+        update_camera();
         update_pass_cbuffers(&render_ctx);
         update_obj_cbuffers(&render_ctx);
 
