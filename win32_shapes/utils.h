@@ -442,6 +442,7 @@ create_sphere (float radius, GeomVertex out_vtx [], uint16_t out_idx []) {
     out_vtx[n_vtx + 1] = bottom;
 
     // -- Compute vertices for each stack ring (do not count the poles as rings).
+    UINT32 _curr_idx = 1;
     for (UINT32 i = 1; i <= n_stack - 1; ++i) {
         float phi = i * phi_step;
 
@@ -470,7 +471,7 @@ create_sphere (float radius, GeomVertex out_vtx [], uint16_t out_idx []) {
             v.TexC.x = theta / XM_2PI;
             v.TexC.y = phi / XM_PI;
 
-            out_vtx[i * n_slice + j] = v;
+            out_vtx[_curr_idx++] = v;
         }
     }
 
