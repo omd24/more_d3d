@@ -690,14 +690,14 @@ handle_mouse_move(SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
     } else if ((wParam & MK_RBUTTON) != 0) {
         // make each pixel correspond to a 0.005 unit in scene
-        float dx = 0.005f * (float)(x - scene_ctx->mouse.x);
-        float dy = 0.005f * (float)(y - scene_ctx->mouse.y);
+        float dx = 0.05f * (float)(x - scene_ctx->mouse.x);
+        float dy = 0.05f * (float)(y - scene_ctx->mouse.y);
 
         // update camera radius
         scene_ctx->radius += dx - dy;
 
         // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 3.0f, 15.0f);
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
     }
     scene_ctx->mouse.x = x;
     scene_ctx->mouse.y = y;
@@ -781,7 +781,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     global_scene_ctx.aspect_ratio = (float)global_scene_ctx.width / (float)global_scene_ctx.height;
     global_scene_ctx.eye_pos = {0.0f, 0.0f, 0.0f};
     global_scene_ctx.view = Identity4x4();
-    XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(0.25f * DirectX::XM_PI, global_scene_ctx.aspect_ratio, 1.0f, 1000.0f);
+    XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(0.25f * XM_PI, global_scene_ctx.aspect_ratio, 1.0f, 1000.0f);
     XMStoreFloat4x4(&global_scene_ctx.proj, p);
 
     D3DRenderContext render_ctx = {};
