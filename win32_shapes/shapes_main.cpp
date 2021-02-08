@@ -41,6 +41,8 @@
 #define NUM_FRAME_RESOURCES     FRAME_COUNT
 // 
 #define MAX_RENDERITEM_COUNT    50
+// TODO(omid): store render_items_count at run-time
+#define OBJ_COUNT   22
 
 enum SUBMESH_INDEX {
     _BOX_ID,
@@ -97,7 +99,7 @@ struct D3DRenderContext {
     PassConstantBuffer              main_pass_constants;
 
     // render items
-    UINT                            render_items_count;
+    //UINT                            obj_count;
     RenderItem                      render_items[MAX_RENDERITEM_COUNT];
     UINT                            pass_cbv_offset;
 
@@ -133,20 +135,6 @@ struct D3DRenderContext {
 
 static void
 create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
-
-    //Vertex      vertices    [_TOTAL_VTX_CNT];
-    //uint16_t    indices     [_TOTAL_IDX_CNT];
-    //Vertex      * vertices = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
-    //uint16_t    * indices = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
-
-    /*GeomVertex  box_vertices[_BOX_VTX_CNT];
-    uint16_t    box_indices[_BOX_IDX_CNT];
-    GeomVertex  grid_vertices[_GRID_VTX_CNT];
-    uint16_t    grid_indices[_GRID_IDX_CNT];
-    GeomVertex  sphere_vertices[_SPHERE_VTX_CNT];
-    uint16_t    sphere_indices[_SPHERE_IDX_CNT];
-    GeomVertex  cylinder_vertices[_CYLINDER_VTX_CNT];
-    uint16_t    cylinder_indices[_CYLINDER_IDX_CNT];*/
 
     // box
     UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
@@ -219,7 +207,7 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     UINT k = 0;
     for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
         vertices[k].Pos = box_vertices[i].Position;
-        vertices[k].Color = XMFLOAT4(DirectX::Colors::DarkGreen);
+        vertices[k].Color = XMFLOAT4(DirectX::Colors::Khaki);
     }
 
     for (size_t i = 0; i < _GRID_VTX_CNT; ++i, ++k) {
@@ -283,7 +271,7 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     render_ctx->geom.submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
 }
 static void
-create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out_count) {
+create_render_items (RenderItem render_items [], MeshGeometry * geom) {
     // NOTE(omid): RenderItems elements 
     /*
         0: box
@@ -360,8 +348,6 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, UINT * out
         render_items[_curr].n_frames_dirty = FRAME_COUNT;
         ++_curr;
     }
-
-    *out_count = _curr;
 }
 // -- indexed drawing
 static void
@@ -370,12 +356,11 @@ draw_render_items (
     ID3D12DescriptorHeap * cbv_heap,
     UINT64 descriptor_increment_size,
     RenderItem render_items [],
-    UINT render_item_count,
     UINT current_frame_index
 ) {
     UINT obj_cb_byte_size = sizeof(ObjectConstantBuffer);
     current_frame_index = (current_frame_index + 1) % FRAME_COUNT;
-    for (size_t i = 0; i < render_item_count; ++i) {
+    for (size_t i = 0; i < OBJ_COUNT; ++i) {
         D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
         D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
         cmd_list->IASetVertexBuffers(0, 1, &vbv);
@@ -383,7 +368,7 @@ draw_render_items (
         cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
 
         // Offset to the CBV in the descriptor heap for this object and for this frame resource.
-        UINT cbv_index = current_frame_index * render_item_count + render_items[i].obj_cbuffer_index;
+        UINT cbv_index = current_frame_index * OBJ_COUNT + render_items[i].obj_cbuffer_index;
 
         D3D12_GPU_DESCRIPTOR_HANDLE cbv_handle = {};
         cbv_handle.ptr = cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + cbv_index * descriptor_increment_size;
@@ -392,24 +377,30 @@ draw_render_items (
         cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
     }
 }
-//static void
-//create_descriptor_heaps (D3DRenderContext * render_ctx) {
-//    UINT obj_count = render_ctx->render_items_count;
-//
-//    // Need a CBV descriptor for each object for each frame resource,
-//    // +1 for the per-pass CBV for each frame resource.
-//    UINT n_descriptors = (obj_count + 1) * FRAME_COUNT;
-//
-//    // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
-//    render_ctx->pass_cbv_offset = obj_count * FRAME_COUNT;
-//
-//    D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
-//    cbv_heap_desc.NumDescriptors = n_descriptors;
-//    cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-//    cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-//    cbv_heap_desc.NodeMask = 0;
-//    render_ctx->device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx->cbv_heap));
-//}
+static void
+create_descriptor_heaps (D3DRenderContext * render_ctx) {
+
+    // Need a CBV descriptor for each object for each frame resource,
+    // +1 for the per-pass CBV for each frame resource.
+    UINT n_descriptors = (OBJ_COUNT + 1) * FRAME_COUNT;
+
+    // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
+    render_ctx->pass_cbv_offset = OBJ_COUNT * FRAME_COUNT;
+
+    D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
+    cbv_heap_desc.NumDescriptors = n_descriptors;
+    cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    cbv_heap_desc.NodeMask = 0;
+    render_ctx->device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx->cbv_heap));
+
+    // Create Render Target View Descriptor Heap
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+    rtv_heap_desc.NumDescriptors = FRAME_COUNT;
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    CHECK_AND_FAIL(render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap)));
+}
 static void
 create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
     D3D12_DESCRIPTOR_RANGE cbv_table0 = {};
@@ -458,55 +449,91 @@ create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signat
 
     device->CreateRootSignature(0, serialized_root_sig->GetBufferPointer(), serialized_root_sig->GetBufferSize(), IID_PPV_ARGS(root_signature));
 }
-//static void
-//create_psos (D3DRenderContext * render_ctx) {
-//    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
-//
-//    pso_desc.InputLayout = {.pInputElementDescs = mInputLayout.data(), (UINT)mInputLayout.size()};
-//    pso_desc.pRootSignature = mRootSignature.Get();
-//    pso_desc.VS =
-//    {
-//        reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
-//        mShaders["standardVS"]->GetBufferSize()
-//    };
-//    pso_desc.PS =
-//    {
-//        reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-//        mShaders["opaquePS"]->GetBufferSize()
-//    };
-//    pso_desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-//    pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-//    pso_desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-//    pso_desc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-//    pso_desc.SampleMask = UINT_MAX;
-//    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-//    pso_desc.NumRenderTargets = 1;
-//    pso_desc.RTVFormats[0] = mBackBufferFormat;
-//    pso_desc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-//    pso_desc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-//    pso_desc.DSVFormat = mDepthStencilFormat;
-//    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&mPSOs["opaque"])));
-//}
+static void
+create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBlob * pixel_shader_code) {
+    // -- Create vertex-input-layout Elements
+    
+    D3D12_INPUT_ELEMENT_DESC input_desc[2];
+    input_desc[0] = {};
+    input_desc[0].SemanticName = "POSITION";
+    input_desc[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    input_desc[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+
+    input_desc[1] = {};
+    input_desc[1].SemanticName = "COLOR";
+    input_desc[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    input_desc[1].AlignedByteOffset = 12; // bc of the position byte-size
+    input_desc[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+
+    // -- Create pipeline state object
+
+    D3D12_BLEND_DESC def_blend_desc = {};
+    def_blend_desc.AlphaToCoverageEnable = FALSE;
+    def_blend_desc.IndependentBlendEnable = FALSE;
+    def_blend_desc.RenderTarget[0].BlendEnable = FALSE;
+    def_blend_desc.RenderTarget[0].LogicOpEnable = FALSE;
+    def_blend_desc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    def_blend_desc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
+    def_blend_desc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    def_blend_desc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    def_blend_desc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+    def_blend_desc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    def_blend_desc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
+    def_blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    D3D12_RASTERIZER_DESC def_rasterizer_desc = {};
+    def_rasterizer_desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    def_rasterizer_desc.CullMode = D3D12_CULL_MODE_BACK;
+    def_rasterizer_desc.FrontCounterClockwise = false;
+    def_rasterizer_desc.DepthBias = 0;
+    def_rasterizer_desc.DepthBiasClamp = 0.0f;
+    def_rasterizer_desc.SlopeScaledDepthBias = 0.0f;
+    def_rasterizer_desc.DepthClipEnable = TRUE;
+    def_rasterizer_desc.ForcedSampleCount = 0;
+    def_rasterizer_desc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
+    pso_desc.pRootSignature = render_ctx->root_signature;
+    pso_desc.VS.pShaderBytecode = vertex_shader_code->GetBufferPointer();
+    pso_desc.VS.BytecodeLength = vertex_shader_code->GetBufferSize();
+    pso_desc.PS.pShaderBytecode = pixel_shader_code->GetBufferPointer();
+    pso_desc.PS.BytecodeLength = pixel_shader_code->GetBufferSize();
+    pso_desc.BlendState = def_blend_desc;
+    pso_desc.SampleMask = UINT_MAX;
+    pso_desc.RasterizerState = def_rasterizer_desc;
+    pso_desc.DepthStencilState.StencilEnable = FALSE;
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    pso_desc.InputLayout.pInputElementDescs = input_desc;
+    pso_desc.InputLayout.NumElements = ARRAY_COUNT(input_desc);
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.SampleDesc.Count = 1;
+    pso_desc.SampleDesc.Quality = 0;
+
+    CHECK_AND_FAIL(render_ctx->device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx->pso)));
+}
 
 static void
-update_camera () {
+update_camera (SceneContext * sc) {
     // Convert Spherical to Cartesian coordinates.
-    global_scene_ctx.eye_pos.x = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * cosf(global_scene_ctx.theta);
-    global_scene_ctx.eye_pos.z = global_scene_ctx.radius * sinf(global_scene_ctx.phi) * sinf(global_scene_ctx.theta);
-    global_scene_ctx.eye_pos.y = global_scene_ctx.radius * cosf(global_scene_ctx.phi);
+    sc->eye_pos.x = sc->radius * sinf(sc->phi) * cosf(sc->theta);
+    sc->eye_pos.z = sc->radius * sinf(sc->phi) * sinf(sc->theta);
+    sc->eye_pos.y = sc->radius * cosf(sc->phi);
 
     // Build the view matrix.
-    XMVECTOR pos = XMVectorSet(global_scene_ctx.eye_pos.x, global_scene_ctx.eye_pos.y, global_scene_ctx.eye_pos.z, 1.0f);
+    XMVECTOR pos = XMVectorSet(sc->eye_pos.x, sc->eye_pos.y, sc->eye_pos.z, 1.0f);
     XMVECTOR target = XMVectorZero();
     XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
     XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-    XMStoreFloat4x4(&global_scene_ctx.view, view);
+    XMStoreFloat4x4(&sc->view, view);
 }
 static void
 update_obj_cbuffers (D3DRenderContext * render_ctx) {
     UINT frame_index = render_ctx->frame_index;
-    for (unsigned i = 0; i < render_ctx->render_items_count; i++) {
+    for (unsigned i = 0; i < OBJ_COUNT; i++) {
         UINT obj_index = render_ctx->render_items[i].obj_cbuffer_index;
         UINT cbuffer_size = sizeof(ObjectConstantBuffer);
         // Only update the cbuffer data if the constants have changed.  
@@ -631,8 +658,6 @@ draw_main (D3DRenderContext * render_ctx) {
     ret = render_ctx->direct_cmd_list->Reset(render_ctx->frame_resources[frame_index].cmd_list_alloc, render_ctx->pso);
     CHECK_AND_FAIL(ret);
 
-
-
     // -- set viewport and scissor
     render_ctx->direct_cmd_list->RSSetViewports(1, &render_ctx->viewport);
     render_ctx->direct_cmd_list->RSSetScissorRects(1, &render_ctx->scissor_rect);
@@ -659,7 +684,7 @@ draw_main (D3DRenderContext * render_ctx) {
     pass_cbv_handle.ptr = render_ctx->cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + pass_cbv_index * (UINT64)render_ctx->cbv_srv_uav_descriptor_size;
     render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, pass_cbv_handle);
 
-    draw_render_items(render_ctx->direct_cmd_list, render_ctx->cbv_heap, render_ctx->cbv_srv_uav_descriptor_size, render_ctx->render_items, render_ctx->render_items_count, frame_index);
+    draw_render_items(render_ctx->direct_cmd_list, render_ctx->cbv_heap, render_ctx->cbv_srv_uav_descriptor_size, render_ctx->render_items, frame_index);
 
     // -- indicate that the backbuffer will now be used to present
     D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->frame_resources[frame_index].render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -689,7 +714,7 @@ handle_mouse_move(SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         // clamp phi
         scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
     } else if ((wParam & MK_RBUTTON) != 0) {
-        // make each pixel correspond to a 0.005 unit in scene
+        // make each pixel correspond to a 0.05 unit in scene
         float dx = 0.05f * (float)(x - scene_ctx->mouse.x);
         float dy = 0.05f * (float)(y - scene_ctx->mouse.y);
 
@@ -706,7 +731,7 @@ static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     LRESULT ret = {};
     switch (uMsg) {
-        /* WM_PAIN is not handled for now ...
+        /* WM_PAINT is not handled for now ...
         case WM_PAINT: {
 
         } break;
@@ -862,33 +887,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.frame_index = render_ctx.swapchain3->GetCurrentBackBufferIndex();
 
     // ========================================================================================================
-#pragma region Descriptors
-    // -- create descriptor heaps
-    // TODO(omid): render_ctx.render_items_count is not usable yet 
-    UINT obj_count = 22;
-
-    // Need a CBV descriptor for each object for each frame resource,
-    // +1 for the per-pass CBV for each frame resource.
-    UINT n_descriptors = (obj_count + 1) * FRAME_COUNT;
-
-    // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
-    render_ctx.pass_cbv_offset = obj_count * FRAME_COUNT;
-
-    D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
-    cbv_heap_desc.NumDescriptors = n_descriptors;
-    cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    cbv_heap_desc.NodeMask = 0;
-    render_ctx.device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx.cbv_heap));
-
-    // Create Render Target View Descriptor Heap
-    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
-    rtv_heap_desc.NumDescriptors = FRAME_COUNT;
-    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    CHECK_AND_FAIL(render_ctx.device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx.rtv_heap)));
-
-#pragma endregion Descriptors
+#pragma region Descriptor Heaps Creation
+    create_descriptor_heaps(&render_ctx);
+#pragma endregion Descriptor Heaps Creation
 
         // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
     render_ctx.rtv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -908,7 +909,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.frame_resources[i].cmd_list_alloc));
 
         // -- create cbuffers as upload_buffer
-        create_upload_buffer(render_ctx.device, obj_cb_size * obj_count, &render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb);
+        create_upload_buffer(render_ctx.device, obj_cb_size * OBJ_COUNT, &render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb);
         // Initialize cb data
         ::memcpy(render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb_data, sizeof(render_ctx.frame_resources[i].obj_cb_data));
 
@@ -921,14 +922,14 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // 1. per obj cbuffer
         {
             // create constant buffer view.
-            for (UINT j = 0; j < obj_count; ++j) {
+            for (UINT j = 0; j < OBJ_COUNT; ++j) {
                 D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].obj_cb->GetGPUVirtualAddress();
 
                 // Offset to the ith object constant buffer in the buffer.
                 cb_address += j * obj_cb_size;
 
                 // Offset to the object cbv in the descriptor heap.
-                int heap_index = i * obj_count + j;
+                int heap_index = i * OBJ_COUNT + j;
 
                 D3D12_CPU_DESCRIPTOR_HANDLE cbv_handle = {};
                 cbv_handle.ptr = render_ctx.cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + heap_index * (UINT64)render_ctx.cbv_srv_uav_descriptor_size;
@@ -956,9 +957,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
             render_ctx.device->CreateConstantBufferView(&cbv_desc, handle);
         }
     }
-
-    //// Create bundle allocator
-    //res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_BUNDLE, IID_PPV_ARGS(&render_ctx.bundle_allocator));
 
     CHECK_AND_FAIL(res);
 
@@ -1017,76 +1015,15 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma endregion Compile Shaders
 
-
 #pragma region PSO Creation
-    // Create vertex-input-layout Elements
-    D3D12_INPUT_ELEMENT_DESC input_desc[2];
-    input_desc[0] = {};
-    input_desc[0].SemanticName = "POSITION";
-    input_desc[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
-    input_desc[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+    create_pso(&render_ctx, vertex_shader_code, pixel_shader_code);
 
-    input_desc[1] = {};
-    input_desc[1].SemanticName = "COLOR";
-    input_desc[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    input_desc[1].AlignedByteOffset = 12; // bc of the position byte-size
-    input_desc[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
-
-    // Create pipeline state object
-
-    D3D12_BLEND_DESC def_blend_desc = {};
-    def_blend_desc.AlphaToCoverageEnable = FALSE;
-    def_blend_desc.IndependentBlendEnable = FALSE;
-    def_blend_desc.RenderTarget[0].BlendEnable = FALSE;
-    def_blend_desc.RenderTarget[0].LogicOpEnable = FALSE;
-    def_blend_desc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-    def_blend_desc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
-    def_blend_desc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-    def_blend_desc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-    def_blend_desc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-    def_blend_desc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-    def_blend_desc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
-    def_blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-    D3D12_RASTERIZER_DESC def_rasterizer_desc = {};
-    def_rasterizer_desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
-    def_rasterizer_desc.CullMode = D3D12_CULL_MODE_BACK;
-    def_rasterizer_desc.FrontCounterClockwise = false;
-    def_rasterizer_desc.DepthBias = 0;
-    def_rasterizer_desc.DepthBiasClamp = 0.0f;
-    def_rasterizer_desc.SlopeScaledDepthBias = 0.0f;
-    def_rasterizer_desc.DepthClipEnable = TRUE;
-    def_rasterizer_desc.ForcedSampleCount = 0;
-    def_rasterizer_desc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
-
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
-    pso_desc.pRootSignature = render_ctx.root_signature;
-    pso_desc.VS.pShaderBytecode = vertex_shader_code->GetBufferPointer();
-    pso_desc.VS.BytecodeLength = vertex_shader_code->GetBufferSize();
-    pso_desc.PS.pShaderBytecode = pixel_shader_code->GetBufferPointer();
-    pso_desc.PS.BytecodeLength = pixel_shader_code->GetBufferSize();
-    pso_desc.BlendState = def_blend_desc;
-    pso_desc.SampleMask = UINT_MAX;
-    pso_desc.RasterizerState = def_rasterizer_desc;
-    pso_desc.DepthStencilState.StencilEnable = FALSE;
-    pso_desc.DepthStencilState.DepthEnable = FALSE;
-    pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    pso_desc.InputLayout.pInputElementDescs = input_desc;
-    pso_desc.InputLayout.NumElements = ARRAY_COUNT(input_desc);
-    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pso_desc.NumRenderTargets = 1;
-    pso_desc.RTVFormats[0] = DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM;
-    pso_desc.SampleDesc.Count = 1;
-    pso_desc.SampleDesc.Quality = 0;
-
-    CHECK_AND_FAIL(render_ctx.device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx.pso)));
     // Create command list
     ID3D12CommandAllocator * current_alloc = render_ctx.frame_resources[render_ctx.frame_index].cmd_list_alloc;
     if (current_alloc) {
         render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, current_alloc, render_ctx.pso, IID_PPV_ARGS(&render_ctx.direct_cmd_list));
     }
 #pragma endregion PSO Creation
-
 
 #pragma region Shapes and RenderItems Creation
 
@@ -1095,84 +1032,18 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
 
     create_shape_geometry(memory, &render_ctx, vts, ids);
-    create_render_items(render_ctx.render_items, &render_ctx.geom, &render_ctx.render_items_count);
+    create_render_items(render_ctx.render_items, &render_ctx.geom);
 
 #pragma endregion Shapes and RenderItems Creation
-
-// TODO(omid): VB and IB should also use a default_heap (not upload heap), similar to the texture. 
-#pragma region Create Vertex Buffer and Index Buffer
-    //// vertex data and indices
-    //TextuVertex vertices[8] = {};
-    //uint16_t indices[36] = {};
-    //create_box_vertices(vertices, indices);
-    //size_t vb_size = sizeof(vertices);
-    //size_t ib_size = sizeof(indices);
-
-    //// Create VB as an upload buffer
-    //uint8_t * vertex_data = nullptr;
-    //UINT64 total_size = render_ctx.render_items_count * vb_size;
-    //create_upload_buffer(render_ctx.device, total_size, &vertex_data, &render_ctx.vertex_buffer);
-    //// Copy vertex data to vertex buffer
-    //memcpy(vertex_data, vertices, vb_size);
-
-    //// Initialize the vertex buffer view (vbv)
-    //render_ctx.vb_view.BufferLocation = render_ctx.vertex_buffer->GetGPUVirtualAddress();
-    //render_ctx.vb_view.StrideInBytes = sizeof(*vertices);
-    //render_ctx.vb_view.SizeInBytes = (UINT)vb_size;
-
-    //// --repeat for index buffer...
-
-    //// Create IB as an upload buffer
-    //uint8_t * indices_data = nullptr;
-    //create_upload_buffer(render_ctx.device, ib_size, &indices_data, &render_ctx.index_buffer);
-    //// Copy index data to index buffer
-    //memcpy(indices_data, indices, ib_size);
-
-    //// Initialize the ib buffer view (ibv)
-    //render_ctx.ib_view.BufferLocation = render_ctx.index_buffer->GetGPUVirtualAddress();
-    //render_ctx.ib_view.Format = DXGI_FORMAT_R16_UINT;
-    //render_ctx.ib_view.SizeInBytes = (UINT)ib_size;
-
-#pragma endregion Create Vertex Buffer and Index Buffer
-
-    //D3D12_RESOURCE_BARRIER barrier = {};
-    //barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    //barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    //barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    //barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-    //barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    //barrier.Transition.pResource = render_ctx.texture;
-    //render_ctx.direct_cmd_list->ResourceBarrier(1, &barrier);
-
-    //// -- describe and create a SRV for the texture
-    //D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
-    //srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    //srv_desc.Format = texture_desc.Format;
-    //srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    //srv_desc.Texture2D.MipLevels = 1;
-    //render_ctx.device->CreateShaderResourceView(render_ctx.texture, &srv_desc, render_ctx.srv_cbv_heap->GetCPUDescriptorHandleForHeapStart());
 
     // -- close the command list and execute it to begin inital gpu setup
     CHECK_AND_FAIL(render_ctx.direct_cmd_list->Close());
     ID3D12CommandList * cmd_lists [] = {render_ctx.direct_cmd_list};
     render_ctx.cmd_queue->ExecuteCommandLists(ARRAY_COUNT(cmd_lists), cmd_lists);
 
-
-//#pragma region Bundle
-//    // -- create and record the bundle
-//    CHECK_AND_FAIL(render_ctx.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_BUNDLE, render_ctx.bundle_allocator, render_ctx.pso, IID_PPV_ARGS(&render_ctx.bundle)));
-//    render_ctx.bundle->SetGraphicsRootSignature(render_ctx.root_signature);
-//    render_ctx.bundle->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-//    render_ctx.bundle->IASetVertexBuffers(0, 1, &render_ctx.vb_view);
-//    render_ctx.bundle->IASetIndexBuffer(&render_ctx.ib_view);
-//    render_ctx.bundle->DrawIndexedInstanced(ARRAY_COUNT(indices), 1, 0, 0, 0);
-//    CHECK_AND_FAIL(render_ctx.bundle->Close());
-//#pragma endregion Bundle
-
     //----------------
     // Create fence
     // create synchronization objects and wait until assets have been uploaded to the GPU.
-
 
     UINT frame_index = render_ctx.frame_index;
     CHECK_AND_FAIL(render_ctx.device->CreateFence(render_ctx.frame_resources[frame_index].fence, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&render_ctx.fence)));
@@ -1203,7 +1074,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
             DispatchMessageA(&msg);
         }
         // OnUpdate()
-        update_camera();
+        update_camera(&global_scene_ctx);
         update_pass_cbuffers(&render_ctx);
         update_obj_cbuffers(&render_ctx);
 
@@ -1214,27 +1085,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     }
 #pragma endregion Main_Loop
 
-
-
-
-#pragma region test
-#if 0
-    Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
-    uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
-    BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
-    // NOTE(omid): N.B. cmd_list is closed so mind the errors 
-    /// for real project, first open cmd_list
-    create_shape_geometry(memory, &render_ctx, vts, ids);
-    create_render_items(render_ctx.render_items, &render_ctx.geom, &render_ctx.render_items_count);
-    draw_render_items(render_ctx.direct_cmd_list, render_ctx.srv_cbv_heap, render_ctx.srv_cbv_descriptor_size, render_ctx.render_items, render_ctx.render_items_count, render_ctx.frame_index);
-
-    Mesh_Dispose(&render_ctx.geom);
-#endif
-#pragma endregion
-
-
-
-
     // ========================================================================================================
 #pragma region Cleanup_And_Debug
     CHECK_AND_FAIL(wait_for_gpu(&render_ctx));
@@ -1243,6 +1093,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     render_ctx.fence->Release();
 
+    // release queuing frame resources
     for (size_t i = 0; i < NUM_FRAME_RESOURCES; i++) {
         render_ctx.frame_resources[i].obj_cb->Unmap(0, nullptr);
         render_ctx.frame_resources[i].pass_cb->Unmap(0, nullptr);
@@ -1250,11 +1101,11 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx.frame_resources[i].pass_cb->Release();
     }
 
-    /*render_ctx.index_buffer->Unmap(0, nullptr);
-    render_ctx.index_buffer->Release();
+    render_ctx.geom.ib_uploader->Release();
+    render_ctx.geom.vb_uploader->Release();
 
-    render_ctx.vertex_buffer->Unmap(0, nullptr);
-    render_ctx.vertex_buffer->Release();*/
+    render_ctx.geom.ib_gpu->Release();
+    render_ctx.geom.vb_gpu->Release();
 
     render_ctx.direct_cmd_list->Release();
     render_ctx.pso->Release();
@@ -1262,7 +1113,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     pixel_shader_code->Release();
     vertex_shader_code->Release();
 
-    // release FrameResources
+    render_ctx.root_signature->Release();
+
+    // release swapchain backbuffers resources
     for (unsigned i = 0; i < FRAME_COUNT; ++i) {
         render_ctx.frame_resources[i].render_target->Release();
         render_ctx.frame_resources[i].cmd_list_alloc->Release();

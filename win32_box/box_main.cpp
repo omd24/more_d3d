@@ -20,6 +20,11 @@
 #define ENABLE_DEBUG_LAYER 0
 #endif
 
+// TODO(omid): find a better way to disable warnings!
+#pragma warning (disable: 28182)    // pointer can be NULL.
+#pragma warning (disable: 6011)     // dereferencing a potentially null pointer
+#pragma warning (disable: 26495)    // not initializing struct members
+
 // Currently we overload the meaning of FrameCount to mean both the maximum
 // number of frames that will be queued to the GPU at a time, as well as the number
 // of back buffers in the DXGI swap chain. For the majority of applications, this
@@ -295,7 +300,7 @@ static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     LRESULT ret = {};
     switch (uMsg) {
-        /* WM_PAIN is not handled for now ...
+        /* WM_PAINT is not handled for now ...
         case WM_PAINT: {
 
         } break;
@@ -327,7 +332,7 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     return ret;
 }
 INT WINAPI
-WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
+WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // ========================================================================================================
 #pragma region Windows_Setup
     WNDCLASSA wc = {};
@@ -1019,6 +1024,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, INT) {
 
     render_ctx.bundle_allocator->Release();
 
+    // NOTE(omid): Here queuing frames is the same as swapchain backbuffers 
     for (unsigned i = 0; i < FRAME_COUNT; ++i) {
         render_ctx.render_targets[i]->Release();
         render_ctx.cmd_allocator[i]->Release();
