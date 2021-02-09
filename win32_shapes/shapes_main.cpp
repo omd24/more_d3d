@@ -147,7 +147,7 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     UINT ssz_id = ssz + sizeof(uint16_t) * _SPHERE_IDX_CNT;
     // cylinder
     UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
-    UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT;
+    //UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT; // not used
 
     GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(memory);
     uint16_t *      box_indices = reinterpret_cast<uint16_t *>(memory + bsz);
@@ -358,7 +358,6 @@ draw_render_items (
     RenderItem render_items [],
     UINT current_frame_index
 ) {
-    UINT obj_cb_byte_size = sizeof(ObjectConstantBuffer);
     current_frame_index = (current_frame_index + 1) % FRAME_COUNT;
     for (size_t i = 0; i < OBJ_COUNT; ++i) {
         D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
@@ -514,7 +513,33 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
 
     CHECK_AND_FAIL(render_ctx->device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx->pso)));
 }
+static void
+handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
+    if ((wParam & MK_LBUTTON) != 0) {
+        // make each pixel correspond to a quarter of a degree
+        float dx = DirectX::XMConvertToRadians(0.25f * (float)(x - scene_ctx->mouse.x));
+        float dy = DirectX::XMConvertToRadians(0.25f * (float)(y - scene_ctx->mouse.y));
 
+        // update angles (to orbit camera around)
+        scene_ctx->theta += dx;
+        scene_ctx->phi += dy;
+
+        // clamp phi
+        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
+    } else if ((wParam & MK_RBUTTON) != 0) {
+        // make each pixel correspond to a 0.05 unit in scene
+        float dx = 0.05f * (float)(x - scene_ctx->mouse.x);
+        float dy = 0.05f * (float)(y - scene_ctx->mouse.y);
+
+        // update camera radius
+        scene_ctx->radius += dx - dy;
+
+        // clamp radius
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
+    }
+    scene_ctx->mouse.x = x;
+    scene_ctx->mouse.y = y;
+}
 static void
 update_camera (SceneContext * sc) {
     // Convert Spherical to Cartesian coordinates.
@@ -542,7 +567,7 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
             XMMATRIX world = XMLoadFloat4x4(&render_ctx->render_items[i].world);
             ObjectConstantBuffer obj_cbuffer = {};
             XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
-            uint8_t * obj_ptr = render_ctx->frame_resources[frame_index].obj_cb_data_ptr + (obj_index * cbuffer_size);
+            uint8_t * obj_ptr = render_ctx->frame_resources[frame_index].obj_cb_data_ptr + ((UINT64)obj_index * cbuffer_size);
             memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
 
             // Next FrameResource need to be updated too.
@@ -580,7 +605,6 @@ update_pass_cbuffers (D3DRenderContext * render_ctx) {
     uint8_t * pass_ptr = render_ctx->frame_resources[render_ctx->frame_index].pass_cb_data_ptr;
     memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstantBuffer));
 }
-
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index) {
 
@@ -699,33 +723,6 @@ draw_main (D3DRenderContext * render_ctx) {
     render_ctx->swapchain->Present(1 /*sync interval*/, 0 /*present flag*/);
 
     return ret;
-}
-static void
-handle_mouse_move(SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
-    if ((wParam & MK_LBUTTON) != 0) {
-        // make each pixel correspond to a quarter of a degree
-        float dx = DirectX::XMConvertToRadians(0.25f * (float)(x - scene_ctx->mouse.x));
-        float dy = DirectX::XMConvertToRadians(0.25f * (float)(y - scene_ctx->mouse.y));
-
-        // update angles (to orbit camera around)
-        scene_ctx->theta += dx;
-        scene_ctx->phi += dy;
-
-        // clamp phi
-        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
-    } else if ((wParam & MK_RBUTTON) != 0) {
-        // make each pixel correspond to a 0.05 unit in scene
-        float dx = 0.05f * (float)(x - scene_ctx->mouse.x);
-        float dy = 0.05f * (float)(y - scene_ctx->mouse.y);
-
-        // update camera radius
-        scene_ctx->radius += dx - dy;
-
-        // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
-    }
-    scene_ctx->mouse.x = x;
-    scene_ctx->mouse.y = y;
 }
 static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -909,7 +906,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.frame_resources[i].cmd_list_alloc));
 
         // -- create cbuffers as upload_buffer
-        create_upload_buffer(render_ctx.device, obj_cb_size * OBJ_COUNT, &render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb);
+        create_upload_buffer(render_ctx.device, (UINT64)obj_cb_size * OBJ_COUNT, &render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb);
         // Initialize cb data
         ::memcpy(render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb_data, sizeof(render_ctx.frame_resources[i].obj_cb_data));
 
@@ -926,7 +923,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
                 D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].obj_cb->GetGPUVirtualAddress();
 
                 // Offset to the ith object constant buffer in the buffer.
-                cb_address += j * obj_cb_size;
+                cb_address += j * (UINT64)obj_cb_size;
 
                 // Offset to the object cbv in the descriptor heap.
                 int heap_index = i * OBJ_COUNT + j;
@@ -966,12 +963,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma endregion Root Signature
 
     // Load and compile shaders
-
-#if defined(_DEBUG)
-    UINT compiler_flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#else
-    UINT compiler_flags = 0;
-#endif
 
 #pragma region Compile Shaders
 // -- using DXC shader compiler [from https://asawicki.info/news_1719_two_shader_compilers_of_direct3d_12]
@@ -1153,6 +1144,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         );
         dxgi_debugger->Release();
         FreeLibrary(dxgidebug_dll);
+
+        // -- consume var to avoid warning
+        dxgiGetDebugInterface = dxgiGetDebugInterface;
     }
 #pragma endregion Cleanup_And_Debug
 

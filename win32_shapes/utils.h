@@ -117,17 +117,6 @@ Identity4x4() {
 
     return I;
 }
-static XMMATRIX
-IdentityMat() {
-    static XMMATRIX I(
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f);
-
-    return I;
-}
-
 static void
 create_upload_buffer (ID3D12Device * device, UINT64 total_size, BYTE ** mapped_data, ID3D12Resource ** out_upload_buffer) {
 
@@ -586,7 +575,7 @@ create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex
     }
 
 #pragma region build cylinder top
-    UINT16 base_index_top = _vtx_cnt;
+    UINT16 base_index_top = (UINT16)_vtx_cnt;
     SIMPLE_ASSERT(441 == base_index_top, "wrong vtx count");
     float y1 = 0.5f * height;
     float dtheta = 2.0f * XM_PI / n_slice;
@@ -608,10 +597,10 @@ create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex
     out_vtx[_vtx_cnt++] = {.Position = {0.0f, y1, 0.0f}, .Normal = {0.0f, 1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.5f, 0.5f}};
 
     // Index of center vertex.
-    UINT32 center_index_top = _vtx_cnt - 1;
+    UINT16 center_index_top = (UINT16)_vtx_cnt - 1;
     SIMPLE_ASSERT(462 == center_index_top, "wrong vtx count");
 
-    for (UINT32 i = 0; i < n_slice; ++i) {
+    for (UINT16 i = 0; i < n_slice; ++i) {
         out_idx[_idx_cnt++] = center_index_top;
         out_idx[_idx_cnt++] = base_index_top + i + 1;
         out_idx[_idx_cnt++] = base_index_top + i;
@@ -619,12 +608,12 @@ create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex
 #pragma endregion build cylinder top
 
 #pragma region build cylinder bottom
-    UINT32 base_index_bottom = _vtx_cnt;
+    UINT16 base_index_bottom = (UINT16)_vtx_cnt;
     SIMPLE_ASSERT(463 == base_index_bottom, "wrong vtx count");
     float y2 = -0.5f * height;
 
     // vertices of ring
-    float dTheta = 2.0f * XM_PI / n_slice;
+    //float dTheta = 2.0f * XM_PI / n_slice; // not used
     for (UINT32 i = 0; i <= n_slice; ++i) {
         float x = bottom_radius * cosf(i * dtheta);
         float z = bottom_radius * sinf(i * dtheta);
@@ -640,10 +629,10 @@ create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex
     out_vtx[_vtx_cnt++] = {.Position = {0.0f, y2, 0.0f}, .Normal = {0.0f, -1.0f, 0.0f}, .TangentU = {1.0f, 0.0f, 0.0f}, .TexC = {0.5f, 0.5f}};
 
     // Cache the index of center vertex.
-    UINT32 center_index_bottom = _vtx_cnt - 1;
+    UINT16 center_index_bottom = (UINT16)_vtx_cnt - 1;
     SIMPLE_ASSERT(484 == center_index_bottom, "wrong vtx count");
 
-    for (UINT32 i = 0; i < n_slice; ++i) {
+    for (UINT16 i = 0; i < n_slice; ++i) {
         out_idx[_idx_cnt++] = center_index_bottom;
         out_idx[_idx_cnt++] = base_index_bottom + i;
         out_idx[_idx_cnt++] = base_index_bottom + i + 1;
@@ -653,8 +642,6 @@ create_cylinder (float bottom_radius, float top_radius, float height, GeomVertex
 }
 static void
 create_grid (float width, float depth, UINT32 m, UINT32 n, GeomVertex out_vtx [], uint16_t out_idx []) {
-    UINT32 _vtx_cnt = m * n;
-    UINT32 face_cnt = (m - 1) * (n - 1) * 2;
 
     // -- Create the vertices.
 
@@ -686,203 +673,18 @@ create_grid (float width, float depth, UINT32 m, UINT32 n, GeomVertex out_vtx []
 
     // Iterate over each quad and compute indices.
     UINT32 k = 0;
-    for (UINT32 i = 0; i < m - 1; ++i) {
-        for (UINT32 j = 0; j < n - 1; ++j) {
-            out_idx[k] = i * n + j;
-            out_idx[k + 1] = i * n + j + 1;
-            out_idx[k + 2] = (i + 1) * n + j;
+    UINT16 nn = (UINT16)n; // cast to avoid compiler warnings
+    for (UINT16 i = 0; i < m - 1; ++i) {
+        for (UINT16 j = 0; j < n - 1; ++j) {
+            out_idx[k] = i * nn + j;
+            out_idx[k + 1] = i * nn + j + 1;
+            out_idx[k + 2] = (i + 1) * nn + j;
 
-            out_idx[k + 3] = (i + 1) * n + j;
-            out_idx[k + 4] = i * n + j + 1;
-            out_idx[k + 5] = (i + 1) * n + j + 1;
+            out_idx[k + 3] = (i + 1) * nn + j;
+            out_idx[k + 4] = i * nn + j + 1;
+            out_idx[k + 5] = (i + 1) * nn + j + 1;
 
             k += 6; // next quad
         }
     }
 }
-
-static void
-create_box_vertices (TextuVertex out_vertices [], uint16_t out_indices []) {
-    // TODO(omid): Check the issue with uv values
-    // this is related to texture cell width?
-    float uv_min = 0.0f;
-    float uv_max = 0.6f;
-
-    TextuVertex vtx1 = {};
-    vtx1.position.x = -0.5f;
-    vtx1.position.y = -0.5f;
-    vtx1.position.z = -0.5f;
-    vtx1.uv.x = uv_max;
-    vtx1.uv.y = uv_max;
-
-    TextuVertex vtx2 = {};
-    vtx2.position.x = -0.5f;
-    vtx2.position.y = +0.5f;
-    vtx2.position.z = -0.5f;
-    vtx2.uv.x = uv_min;
-    vtx2.uv.y = uv_max;
-
-    TextuVertex vtx3 = {};
-    vtx3.position.x = +0.5f;
-    vtx3.position.y = +0.5f;
-    vtx3.position.z = -0.5f;
-    vtx3.uv.x = uv_min;
-    vtx3.uv.y = uv_min;
-
-    TextuVertex vtx4 = {};
-    vtx4.position.x = +0.5f;
-    vtx4.position.y = -0.5f;
-    vtx4.position.z = -0.5f;
-    vtx4.uv.x = uv_max;
-    vtx4.uv.y = uv_min;
-
-    TextuVertex vtx5 = {};
-    vtx5.position.x = -0.5f;
-    vtx5.position.y = -0.5f;
-    vtx5.position.z = +0.5f;
-    vtx5.uv.x = uv_max;
-    vtx5.uv.y = uv_max;
-
-    TextuVertex vtx6 = {};
-    vtx6.position.x = -0.5f;
-    vtx6.position.y = +0.5f;
-    vtx6.position.z = +0.5f;
-    vtx6.uv.x = uv_min;
-    vtx6.uv.y = uv_max;
-
-    TextuVertex vtx7 = {};
-    vtx7.position.x = +0.5f;
-    vtx7.position.y = +0.5f;
-    vtx7.position.z = +0.5f;
-    vtx7.uv.x = uv_min;
-    vtx7.uv.y = uv_min;
-
-    TextuVertex vtx8 = {};
-    vtx8.position.x = +0.5f;
-    vtx8.position.y = -0.5f;
-    vtx8.position.z = +0.5f;
-    vtx8.uv.x = uv_max;
-    vtx8.uv.y = uv_min;
-
-    out_vertices[0] = vtx1;
-    out_vertices[1] = vtx2;
-    out_vertices[2] = vtx3;
-    out_vertices[3] = vtx4;
-    out_vertices[4] = vtx5;
-    out_vertices[5] = vtx6;
-    out_vertices[6] = vtx7;
-    out_vertices[7] = vtx8;
-
-    // front face
-    out_indices[0] = 0;
-    out_indices[1] = 1;
-    out_indices[2] = 2;
-    out_indices[3] = 0;
-    out_indices[4] = 2;
-    out_indices[5] = 3;
-
-    // back face
-    out_indices[6] = 4;
-    out_indices[7] = 6;
-    out_indices[8] = 5;
-    out_indices[9] = 4;
-    out_indices[10] = 7;
-    out_indices[11] = 6;
-
-    // left face
-    out_indices[12] = 4;
-    out_indices[13] = 5;
-    out_indices[14] = 1;
-    out_indices[15] = 4;
-    out_indices[16] = 1;
-    out_indices[17] = 0;
-
-    // right face
-    out_indices[18] = 3;
-    out_indices[19] = 2;
-    out_indices[20] = 6;
-    out_indices[21] = 3;
-    out_indices[22] = 6;
-    out_indices[23] = 7;
-
-    // top face
-    out_indices[24] = 1;
-    out_indices[25] = 5;
-    out_indices[26] = 6;
-    out_indices[27] = 1;
-    out_indices[28] = 6;
-    out_indices[29] = 2;
-
-    // bottom face
-    out_indices[30] = 4;
-    out_indices[31] = 0;
-    out_indices[32] = 3;
-    out_indices[33] = 4;
-    out_indices[34] = 3;
-    out_indices[35] = 7;
-
-    //{
-    //    // front face
-    //    0, 1, 2,
-    //    0, 2, 3,
-
-    //    // back face
-    //    4, 6, 5,
-    //    4, 7, 6,
-
-    //    // left face
-    //    4, 5, 1,
-    //    4, 1, 0,
-
-    //    // right face
-    //    3, 2, 6,
-    //    3, 6, 7,
-
-    //    // top face
-    //    1, 5, 6,
-    //    1, 6, 2,
-
-    //    // bottom face
-    //    4, 0, 3,
-    //    4, 3, 7
-    //}
-
-}
-static bool
-generate_checkerboard_pattern (
-    uint32_t texture_size, uint32_t bytes_per_pixel,
-    uint32_t row_pitch, uint32_t cell_width,
-    uint32_t cell_height, uint8_t * texture_ptr
-) {
-    bool ret = false;
-    if (texture_ptr) {
-        for (uint32_t i = 0; i < texture_size; i += bytes_per_pixel) {
-
-            uint32_t x = i % row_pitch;         // row index
-            uint32_t y = i / row_pitch;         // column index
-
-            // -- cell indices (xx, yy)
-            uint32_t xx = x / cell_width;
-            uint32_t yy = y / cell_height;
-
-            // -- color cell
-            if (xx % 2 == yy % 2) {
-                // white
-                texture_ptr[i] = 0xdd;          // R
-                texture_ptr[i + 1] = 0xee;      // G
-                texture_ptr[i + 2] = 0xff;      // B
-                texture_ptr[i + 3] = 0xff;      // A
-
-            } else {
-                // black
-                texture_ptr[i] = 0x04;          // R
-                texture_ptr[i + 1] = 0x04;      // G
-                texture_ptr[i + 2] = 0x04;      // B
-                texture_ptr[i + 3] = 0xff;      // A
-            }
-        }
-        ret = true;
-    }
-    return ret;
-}
-
