@@ -27,19 +27,12 @@
 #include "./headers/dynarray.h"
 #include "utils.h"
 
-// Currently we overload the meaning of FrameCount to mean both the maximum
-// number of frames that will be queued to the GPU at a time, as well as the number
-// of back buffers in the DXGI swap chain. For the majority of applications, this
-// is convenient and works well. However, there will be certain cases where an
-// application may want to queue up more frames than there are back buffers
-// available.
-// It should be noted that excessive buffering of frames dependent on user input
-// may result in noticeable latency in your app.
-#define FRAME_COUNT     2   // TODO(omid): check the inconsistant frame_count = 3 error after final gpu waiting, on "texture->release"
-// TODO(omid): should FRAME_COUNT be SWAPCHAIN_BUFFER_COUNT? 
-// TODO(omid): NUM_FRAME_RESOURCE = FRAME_COUNT ?
-#define NUM_FRAME_RESOURCES     FRAME_COUNT
-// 
+//#include <time.h> /* for srand */
+
+// TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)
+#define NUM_BACKBUFFERS         2
+#define NUM_QUEUING_FRAMES      3
+
 #define MAX_RENDERITEM_COUNT    50
 // TODO(omid): store render_items_count at run-time
 #define OBJ_COUNT   22
@@ -91,11 +84,6 @@ struct D3DRenderContext {
     ID3D12DescriptorHeap *          rtv_heap;
     ID3D12DescriptorHeap *          cbv_heap;
 
-    // App resources
-    //ID3D12Resource *                vertex_buffer;
-    //ID3D12Resource *                index_buffer;
-    //D3D12_VERTEX_BUFFER_VIEW        vb_view;
-    //D3D12_INDEX_BUFFER_VIEW         ib_view;
     PassConstantBuffer              main_pass_constants;
 
     // render items
@@ -110,7 +98,11 @@ struct D3DRenderContext {
     UINT                            frame_index;
     HANDLE                          fence_event;
     ID3D12Fence *                   fence;
-    FrameResource                   frame_resources[NUM_FRAME_RESOURCES];
+    FrameResource                   frame_resources[NUM_QUEUING_FRAMES];
+
+    // Each swapchain backbuffer needs a render target
+    ID3D12Resource *                render_targets[NUM_BACKBUFFERS];
+    UINT                            backbuffer_index;
 
     // TODO(omid): Do we need the followings now? 
     FrameResource * current_frame_resource;
@@ -288,7 +280,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom) {
     render_items[_curr].index_count = geom->submesh_geoms[_BOX_ID].index_count;
     render_items[_curr].start_index_loc = geom->submesh_geoms[_BOX_ID].start_index_location;
     render_items[_curr].base_vertex_loc = geom->submesh_geoms[_BOX_ID].base_vertex_location;
-    render_items[_curr].n_frames_dirty = FRAME_COUNT;
+    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
     ++_curr;
 
     render_items[_curr].world = Identity4x4();
@@ -298,7 +290,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom) {
     render_items[_curr].index_count = geom->submesh_geoms[_GRID_ID].index_count;
     render_items[_curr].start_index_loc = geom->submesh_geoms[_GRID_ID].start_index_location;
     render_items[_curr].base_vertex_loc = geom->submesh_geoms[_GRID_ID].base_vertex_location;
-    render_items[_curr].n_frames_dirty = FRAME_COUNT;
+    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
     ++_curr;
 
     for (int i = 0; i < 5; ++i) {
@@ -315,7 +307,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom) {
         render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = FRAME_COUNT;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
@@ -325,7 +317,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom) {
         render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = FRAME_COUNT;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
@@ -335,7 +327,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom) {
         render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = FRAME_COUNT;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
@@ -345,7 +337,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom) {
         render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
         render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
         render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = FRAME_COUNT;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
     }
 }
@@ -358,7 +350,7 @@ draw_render_items (
     RenderItem render_items [],
     UINT current_frame_index
 ) {
-    current_frame_index = (current_frame_index + 1) % FRAME_COUNT;
+    current_frame_index = (current_frame_index + 1) % NUM_QUEUING_FRAMES;
     for (size_t i = 0; i < OBJ_COUNT; ++i) {
         D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
         D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
@@ -381,10 +373,10 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
     // Need a CBV descriptor for each object for each frame resource,
     // +1 for the per-pass CBV for each frame resource.
-    UINT n_descriptors = (OBJ_COUNT + 1) * FRAME_COUNT;
+    UINT n_descriptors = (OBJ_COUNT + 1) * NUM_QUEUING_FRAMES;
 
     // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
-    render_ctx->pass_cbv_offset = OBJ_COUNT * FRAME_COUNT;
+    render_ctx->pass_cbv_offset = OBJ_COUNT * NUM_QUEUING_FRAMES;
 
     D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
     cbv_heap_desc.NumDescriptors = n_descriptors;
@@ -395,7 +387,7 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
-    rtv_heap_desc.NumDescriptors = FRAME_COUNT;
+    rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     CHECK_AND_FAIL(render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap)));
@@ -451,7 +443,7 @@ create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signat
 static void
 create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBlob * pixel_shader_code) {
     // -- Create vertex-input-layout Elements
-    
+
     D3D12_INPUT_ELEMENT_DESC input_desc[2];
     input_desc[0] = {};
     input_desc[0].SemanticName = "POSITION";
@@ -567,6 +559,19 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
             XMMATRIX world = XMLoadFloat4x4(&render_ctx->render_items[i].world);
             ObjectConstantBuffer obj_cbuffer = {};
             XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
+
+            //// -- color change experiment
+            //srand((unsigned)time(0));
+            //int lb = 0;
+            //int ub = 1000;
+            //static int rn = rand() % ((ub - lb) + lb);
+            //++rn;
+            //rn = (rn > ub) ? 0 : rn;
+            //if (rn < 6 && i > 2)
+            //    obj_cbuffer.color = XMFLOAT4(DirectX::Colors::Crimson);
+            //else
+            //    obj_cbuffer.color = XMFLOAT4(0, 0, 0, 0);
+
             uint8_t * obj_ptr = render_ctx->frame_resources[frame_index].obj_cb_data_ptr + ((UINT64)obj_index * cbuffer_size);
             memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
 
@@ -606,7 +611,7 @@ update_pass_cbuffers (D3DRenderContext * render_ctx) {
     memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstantBuffer));
 }
 static HRESULT
-move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index) {
+move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
 
     HRESULT ret = E_FAIL;
     UINT frame_index = *out_frame_index;
@@ -617,8 +622,8 @@ move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index) {
     CHECK_AND_FAIL(ret);
 
     // -- 2. update frame index
-    *out_frame_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
-    //render_ctx->frame_index = (render_ctx->frame_index + 1) % NUM_FRAME_RESOURCES;
+    *out_backbuffer_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
+    *out_frame_index = (render_ctx->frame_index + 1) % NUM_QUEUING_FRAMES;
 
     // -- 3. if the next frame is not ready to be rendered yet, wait until it is ready
     if (render_ctx->fence->GetCompletedValue() < render_ctx->frame_resources[frame_index].fence) {
@@ -666,6 +671,7 @@ static HRESULT
 draw_main (D3DRenderContext * render_ctx) {
     HRESULT ret = E_FAIL;
     UINT frame_index = render_ctx->frame_index;
+    UINT backbuffer_index = render_ctx->backbuffer_index;
 
     // Populate command list
 
@@ -687,13 +693,13 @@ draw_main (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->RSSetScissorRects(1, &render_ctx->scissor_rect);
 
     // -- indicate that the backbuffer will be used as the render target
-    D3D12_RESOURCE_BARRIER barrier1 = create_barrier(render_ctx->frame_resources[frame_index].render_target, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    D3D12_RESOURCE_BARRIER barrier1 = create_barrier(render_ctx->render_targets[backbuffer_index], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier1);
 
     // -- get CPU descriptor handle that represents the start of the rtv heap
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
     // -- apply initial offset
-    rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->frame_index) * INT64(render_ctx->rtv_descriptor_size));
+    rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->backbuffer_index) * INT64(render_ctx->rtv_descriptor_size));
     float clear_colors [] = {0.2f, 0.3f, 0.5f, 1.0f};
     render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, clear_colors, 0, nullptr);
     render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
@@ -711,7 +717,7 @@ draw_main (D3DRenderContext * render_ctx) {
     draw_render_items(render_ctx->direct_cmd_list, render_ctx->cbv_heap, render_ctx->cbv_srv_uav_descriptor_size, render_ctx->render_items, frame_index);
 
     // -- indicate that the backbuffer will now be used to present
-    D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->frame_resources[frame_index].render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+    D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->render_targets[backbuffer_index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier2);
 
     // -- finish populating command list
@@ -870,7 +876,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     swapchain_desc.BufferDesc = backbuffer_desc;
     swapchain_desc.SampleDesc = sampler_desc;
     swapchain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapchain_desc.BufferCount = FRAME_COUNT;
+    swapchain_desc.BufferCount = NUM_BACKBUFFERS;
     swapchain_desc.OutputWindow = hwnd;
     swapchain_desc.Windowed = TRUE;
     swapchain_desc.SwapEffect = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -881,27 +887,30 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     // -- to get current backbuffer index
     CHECK_AND_FAIL(render_ctx.swapchain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&render_ctx.swapchain3));
-    render_ctx.frame_index = render_ctx.swapchain3->GetCurrentBackBufferIndex();
+    render_ctx.backbuffer_index = render_ctx.swapchain3->GetCurrentBackBufferIndex();
 
     // ========================================================================================================
 #pragma region Descriptor Heaps Creation
     create_descriptor_heaps(&render_ctx);
 #pragma endregion Descriptor Heaps Creation
 
-        // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
+    // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
     render_ctx.rtv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx.rtv_heap->GetCPUDescriptorHandleForHeapStart();
 
-    UINT obj_cb_size = sizeof(ObjectConstantBuffer);
-    UINT pass_cb_size = sizeof(PassConstantBuffer);
-
-    for (UINT i = 0; i < FRAME_COUNT; ++i) {
-        CHECK_AND_FAIL(render_ctx.swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx.frame_resources[i].render_target)));
+    for (UINT i = 0; i < NUM_BACKBUFFERS; ++i) {
+        CHECK_AND_FAIL(render_ctx.swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx.render_targets[i])));
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = {};
         cpu_handle.ptr = rtv_handle_start.ptr + ((UINT64)i * render_ctx.rtv_descriptor_size);
         // -- create a rtv for each frame
-        render_ctx.device->CreateRenderTargetView(render_ctx.frame_resources[i].render_target, nullptr, cpu_handle);
+        render_ctx.device->CreateRenderTargetView(render_ctx.render_targets[i], nullptr, cpu_handle);
+    }
+
+    UINT obj_cb_size = sizeof(ObjectConstantBuffer);
+    UINT pass_cb_size = sizeof(PassConstantBuffer);
+    for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
+
         // -- create a cmd-allocator for each frame
         res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.frame_resources[i].cmd_list_alloc));
 
@@ -915,7 +924,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         ::memcpy(render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb_data, sizeof(render_ctx.frame_resources[i].pass_cb_data));
     }
 
-    for (UINT i = 0; i < FRAME_COUNT; ++i) {
+    for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
         // 1. per obj cbuffer
         {
             // create constant buffer view.
@@ -1072,7 +1081,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // OnRender() aka rendering
         CHECK_AND_FAIL(draw_main(&render_ctx));
 
-        CHECK_AND_FAIL(move_to_next_frame(&render_ctx, &render_ctx.frame_index));
+        CHECK_AND_FAIL(move_to_next_frame(&render_ctx, &render_ctx.frame_index, &render_ctx.backbuffer_index));
     }
 #pragma endregion Main_Loop
 
@@ -1085,11 +1094,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.fence->Release();
 
     // release queuing frame resources
-    for (size_t i = 0; i < NUM_FRAME_RESOURCES; i++) {
+    for (size_t i = 0; i < NUM_QUEUING_FRAMES; i++) {
         render_ctx.frame_resources[i].obj_cb->Unmap(0, nullptr);
         render_ctx.frame_resources[i].pass_cb->Unmap(0, nullptr);
         render_ctx.frame_resources[i].obj_cb->Release();
         render_ctx.frame_resources[i].pass_cb->Release();
+
+        render_ctx.frame_resources[i].cmd_list_alloc->Release();
     }
 
     render_ctx.geom.ib_uploader->Release();
@@ -1107,9 +1118,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.root_signature->Release();
 
     // release swapchain backbuffers resources
-    for (unsigned i = 0; i < FRAME_COUNT; ++i) {
-        render_ctx.frame_resources[i].render_target->Release();
-        render_ctx.frame_resources[i].cmd_list_alloc->Release();
+    for (unsigned i = 0; i < NUM_BACKBUFFERS; ++i) {
+        render_ctx.render_targets[i]->Release();
     }
 
     render_ctx.cbv_heap->Release();

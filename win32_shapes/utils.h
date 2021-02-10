@@ -19,6 +19,7 @@ using namespace DirectX;
 // -- per object constants
 struct ObjectConstantBuffer {
     XMFLOAT4X4 world;
+    //XMFLOAT4   color; /* color change experiment*/
     float padding[48];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
@@ -48,9 +49,6 @@ struct FrameResource {
     // We cannot reset the allocator until the GPU is done processing the commands.
     // So each frame needs their own allocator.
     ID3D12CommandAllocator * cmd_list_alloc;
-
-    // Each frame needs a render target
-    ID3D12Resource * render_target;
 
     // We cannot update a cbuffer until the GPU is done processing the commands
     // that reference it.  So each frame needs their own cbuffers.
