@@ -1,6 +1,5 @@
 cbuffer PerObjectConstantBuffer : register(b0) {
     float4x4 global_world;
-    float4   global_color;
 }
 cbuffer PerPassConstantBuffer : register(b1) {
     float4x4 global_view;
@@ -31,7 +30,7 @@ VertexShader_Main (VertexShaderInput vin) {
     VertexShaderOutput res;
     float4 pos_world = mul(float4(vin.pos_local, 1.0f), global_world);
     res.pos_homogenous_clip_space = mul(pos_world, global_view_proj);
-    res.color = vin.color + global_color;
+    res.color = vin.color;
     return res;
 }
 float4

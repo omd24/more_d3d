@@ -82,7 +82,6 @@ struct D3DRenderContext {
     UINT                            cbv_srv_uav_descriptor_size;
 
     ID3D12DescriptorHeap *          rtv_heap;
-    ID3D12DescriptorHeap *          cbv_heap;
 
     PassConstantBuffer              main_pass_constants;
 
@@ -110,20 +109,14 @@ struct D3DRenderContext {
 
 };
 // NOTE(omid): Don't worry this is expermental!
-#define _BOX_VTX_CNT   24
-#define _BOX_IDX_CNT   36
+#define _WAVE_VTX_CNT   16384
+#define _WAVE_IDX_CNT   96774
 
-#define _GRID_VTX_CNT   2400
-#define _GRID_IDX_CNT   13806
+#define _GRID_VTX_CNT   2500
+#define _GRID_IDX_CNT   14406
 
-#define _SPHERE_VTX_CNT   401
-#define _SPHERE_IDX_CNT   2280
-
-#define _CYLINDER_VTX_CNT   485
-#define _CYLINDER_IDX_CNT   2520
-
-#define _TOTAL_VTX_CNT  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT)
-#define _TOTAL_IDX_CNT  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT)
+#define _TOTAL_VTX_CNT  (_WAVE_VTX_CNT + _GRID_VTX_CNT)
+#define _TOTAL_IDX_CNT  (_WAVE_IDX_CNT + _GRID_IDX_CNT)
 
 static void
 create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
@@ -371,19 +364,19 @@ draw_render_items (
 static void
 create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
-    // Need a CBV descriptor for each object for each frame resource,
-    // +1 for the per-pass CBV for each frame resource.
-    UINT n_descriptors = (OBJ_COUNT + 1) * NUM_QUEUING_FRAMES;
+    //// Need a CBV descriptor for each object for each frame resource,
+    //// +1 for the per-pass CBV for each frame resource.
+    //UINT n_descriptors = (OBJ_COUNT + 1) * NUM_QUEUING_FRAMES;
 
-    // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
-    render_ctx->pass_cbv_offset = OBJ_COUNT * NUM_QUEUING_FRAMES;
+    //// Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
+    //render_ctx->pass_cbv_offset = OBJ_COUNT * NUM_QUEUING_FRAMES;
 
-    D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
-    cbv_heap_desc.NumDescriptors = n_descriptors;
-    cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    cbv_heap_desc.NodeMask = 0;
-    render_ctx->device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx->cbv_heap));
+    //D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
+    //cbv_heap_desc.NumDescriptors = n_descriptors;
+    //cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    //cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    //cbv_heap_desc.NodeMask = 0;
+    //render_ctx->device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx->cbv_heap));
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
@@ -394,31 +387,18 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
 }
 static void
 create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
-    D3D12_DESCRIPTOR_RANGE cbv_table0 = {};
-    cbv_table0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-    cbv_table0.NumDescriptors = 1;
-    cbv_table0.BaseShaderRegister = 0;
-    cbv_table0.RegisterSpace = 0;
-    cbv_table0.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_DESCRIPTOR_RANGE cbv_table1 = {};
-    cbv_table1.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-    cbv_table1.NumDescriptors = 1;
-    cbv_table1.BaseShaderRegister = 1;
-    cbv_table1.RegisterSpace = 0;
-    cbv_table1.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-    // Root parameter can be a table, root descriptor or root constants.
+    // Root parameters here are root cbv (as opposed to table).
     D3D12_ROOT_PARAMETER slot_root_params[2] = {};
     // Create root CBVs.
-    slot_root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    slot_root_params[0].DescriptorTable.pDescriptorRanges = &cbv_table0;
-    slot_root_params[0].DescriptorTable.NumDescriptorRanges = 1;
+    slot_root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    slot_root_params[0].Descriptor.ShaderRegister = 0;
+    slot_root_params[0].Descriptor.RegisterSpace = 1;
     slot_root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-    slot_root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    slot_root_params[1].DescriptorTable.pDescriptorRanges = &cbv_table1;
-    slot_root_params[1].DescriptorTable.NumDescriptorRanges = 1;
+    slot_root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    slot_root_params[1].Descriptor.ShaderRegister = 0;
+    slot_root_params[1].Descriptor.RegisterSpace = 0;
     slot_root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     // A root signature is an array of root parameters.
@@ -988,7 +968,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxc_compiler));
     // if (FAILED(hr)) Handle error
 
-    wchar_t const * shaders_path = L"./shaders/shapes_shader.hlsl";
+    wchar_t const * shaders_path = L"./shaders/color.hlsl";
     uint32_t code_page = CP_UTF8;
     IDxcBlobEncoding * shader_blob = nullptr;
     IDxcOperationResult * dxc_res = nullptr;
