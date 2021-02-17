@@ -27,6 +27,8 @@
 #include "./headers/dynarray.h"
 #include "./headers/utils.h"
 
+#include "waves.h"
+
 //#include <time.h> /* for srand */
 
 // TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)

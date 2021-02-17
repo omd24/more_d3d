@@ -150,7 +150,7 @@
     <ClCompile Include="d3d12_waves.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="shaders\shapes_shader.hlsl">
+    <FxCompile Include="shaders\color.hlsl">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </FxCompile>
