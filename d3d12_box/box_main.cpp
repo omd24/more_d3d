@@ -6,7 +6,7 @@
 
 #include <dxcapi.h>
 
-#include "utils.h"
+#include "headers/utils.h"
 
 #if !defined(NDEBUG) && !defined(_DEBUG)
 #error "Define at least one."

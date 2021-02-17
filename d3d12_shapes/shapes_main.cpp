@@ -25,7 +25,7 @@
 #pragma warning (disable: 26495)    // not initializing struct members
 
 #include "./headers/dynarray.h"
-#include "utils.h"
+#include "./headers/utils.h"
 
 //#include <time.h> /* for srand */
 
