@@ -92,8 +92,12 @@ struct D3DRenderContext {
     RenderItem                      render_items[MAX_RENDERITEM_COUNT];
     UINT                            pass_cbv_offset;
 
-    // TODO(omid): heap-alloc the mesh_geom and render_items
-    MeshGeometry                    geom;
+    Waves                           waves;
+
+    // TODO(omid): heap-alloc the mesh_geom(s)
+    // TODO(omid): store geom(s) in an array
+    MeshGeometry                    land_geom;
+    MeshGeometry                    water_geom;
 
     // Synchronization stuff
     UINT                            frame_index;
@@ -120,142 +124,115 @@ struct D3DRenderContext {
 #define _TOTAL_VTX_CNT  (_WAVE_VTX_CNT + _GRID_VTX_CNT)
 #define _TOTAL_IDX_CNT  (_WAVE_IDX_CNT + _GRID_IDX_CNT)
 
+static float calc_hill_height (float x, float z) {
+    return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
+}
 static void
-create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
+create_land_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
 
-    // box
-    UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
-    UINT bsz_id = bsz + sizeof(uint16_t) * _BOX_IDX_CNT;
-    // grid
-    UINT gsz = bsz_id + sizeof(GeomVertex) * _GRID_VTX_CNT;
-    UINT gsz_id = gsz + sizeof(uint16_t) * _GRID_IDX_CNT;
-    // sphere
-    UINT ssz = gsz_id + sizeof(GeomVertex) * _SPHERE_VTX_CNT;
-    UINT ssz_id = ssz + sizeof(uint16_t) * _SPHERE_IDX_CNT;
-    // cylinder
-    UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
-    //UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT; // not used
+    GeomVertex grid[_GRID_VTX_CNT];
+    create_grid(160.0f, 160.0f, 50, 50, grid, indices);
 
-    GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(memory);
-    uint16_t *      box_indices = reinterpret_cast<uint16_t *>(memory + bsz);
-    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(memory + bsz_id);
-    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(memory + gsz);
-    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(memory + gsz_id);
-    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(memory + ssz);
-    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(memory + ssz_id);
-    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(memory + csz);
+    // Extract the vertex elements we are interested and apply the height function to
+    // each vertex.  In addition, color the vertices based on their height so we have
+    // sandy looking beaches, grassy low hills, and snow mountain peaks.
 
-    create_box(1.5f, 0.5f, 1.5f, box_vertices, box_indices);
-    create_grid(20.0f, 30.0f, 60, 40, grid_vertices, grid_indices);
-    create_sphere(0.5f, sphere_vertices, sphere_indices);
-    create_cylinder(0.5f, 0.3f, 3.0f, cylinder_vertices, cylinder_indices);
+    for (unsigned i = 0; i < _GRID_VTX_CNT; ++i) {
+        auto & p = grid[i].Position;
+        vertices[i].Pos = p;
+        vertices[i].Pos.y = calc_hill_height(p.x, p.z);
 
-    // We are concatenating all the geometry into one big vertex/index buffer.  So
-    // define the regions in the buffer each submesh covers.
-
-    // Cache the vertex offsets to each object in the concatenated vertex buffer.
-    UINT box_vertex_offset = 0;
-    UINT grid_vertex_offset = _BOX_VTX_CNT;
-    UINT sphere_vertex_offset = grid_vertex_offset + _GRID_VTX_CNT;
-    UINT cylinder_vertex_offset = sphere_vertex_offset + _SPHERE_VTX_CNT;
-
-    // Cache the starting index for each object in the concatenated index buffer.
-    UINT box_index_offset = 0;
-    UINT grid_index_offset = _BOX_IDX_CNT;
-    UINT sphere_index_offset = grid_index_offset + _GRID_IDX_CNT;
-    UINT cylinder_index_offsett = sphere_index_offset + _SPHERE_IDX_CNT;
-
-    // Define the SubmeshGeometry that cover different 
-    // regions of the vertex/index buffers.
-
-    SubmeshGeometry box_submesh = {};
-    box_submesh.index_count = _BOX_IDX_CNT;
-    box_submesh.start_index_location = box_index_offset;
-    box_submesh.base_vertex_location = box_vertex_offset;
-
-    SubmeshGeometry grid_submesh = {};
-    grid_submesh.index_count = _GRID_IDX_CNT;
-    grid_submesh.start_index_location = grid_index_offset;
-    grid_submesh.base_vertex_location = grid_vertex_offset;
-
-    SubmeshGeometry sphere_submesh = {};
-    sphere_submesh.index_count = _SPHERE_IDX_CNT;
-    sphere_submesh.start_index_location = sphere_index_offset;
-    sphere_submesh.base_vertex_location = sphere_vertex_offset;
-
-    SubmeshGeometry cylinder_submesh = {};
-    cylinder_submesh.index_count = _CYLINDER_IDX_CNT;
-    cylinder_submesh.start_index_location = cylinder_index_offsett;
-    cylinder_submesh.base_vertex_location = cylinder_vertex_offset;
-
-    // Extract the vertex elements we are interested in and pack the
-    // vertices of all the meshes into one vertex buffer.
-
-    UINT k = 0;
-    for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
-        vertices[k].Pos = box_vertices[i].Position;
-        vertices[k].Color = XMFLOAT4(DirectX::Colors::Khaki);
+        // Color the vertex based on its height.
+        if (vertices[i].Pos.y < -10.0f) {
+            // Sandy beach color.
+            vertices[i].Color = XMFLOAT4(1.0f, 0.96f, 0.62f, 1.0f);
+        } else if (vertices[i].Pos.y < 5.0f) {
+            // Light yellow-green.
+            vertices[i].Color = XMFLOAT4(0.48f, 0.77f, 0.46f, 1.0f);
+        } else if (vertices[i].Pos.y < 12.0f) {
+            // Dark yellow-green.
+            vertices[i].Color = XMFLOAT4(0.1f, 0.48f, 0.19f, 1.0f);
+        } else if (vertices[i].Pos.y < 20.0f) {
+            // Dark brown.
+            vertices[i].Color = XMFLOAT4(0.45f, 0.39f, 0.34f, 1.0f);
+        } else {
+            // White snow.
+            vertices[i].Color = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        }
     }
 
-    for (size_t i = 0; i < _GRID_VTX_CNT; ++i, ++k) {
-        vertices[k].Pos = grid_vertices[i].Position;
-        vertices[k].Color = XMFLOAT4(DirectX::Colors::ForestGreen);
-    }
-
-    for (size_t i = 0; i < _SPHERE_VTX_CNT; ++i, ++k) {
-        vertices[k].Pos = sphere_vertices[i].Position;
-        vertices[k].Color = XMFLOAT4(DirectX::Colors::Crimson);
-    }
-
-    for (size_t i = 0; i < _CYLINDER_VTX_CNT; ++i, ++k) {
-        vertices[k].Pos = cylinder_vertices[i].Position;
-        vertices[k].Color = XMFLOAT4(DirectX::Colors::SteelBlue);
-    }
-
-    // -- pack indices
-    k = 0;
-    for (size_t i = 0; i < _BOX_IDX_CNT; ++i, ++k) {
-        indices[k] = box_indices[i];
-    }
-
-    for (size_t i = 0; i < _GRID_IDX_CNT; ++i, ++k) {
-        indices[k] = grid_indices[i];
-    }
-
-    for (size_t i = 0; i < _SPHERE_IDX_CNT; ++i, ++k) {
-        indices[k] = sphere_indices[i];
-    }
-
-    for (size_t i = 0; i < _CYLINDER_IDX_CNT; ++i, ++k) {
-        indices[k] = cylinder_indices[i];
-    }
-
-    UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
-    UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
+    UINT vb_byte_size = _GRID_VTX_CNT * sizeof(Vertex);
+    UINT ib_byte_size = _GRID_IDX_CNT * sizeof(uint16_t);
 
     // -- Fill out render_ctx geom (output)
 
-    D3DCreateBlob(vb_byte_size, &render_ctx->geom.vb_cpu);
-    CopyMemory(render_ctx->geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+    D3DCreateBlob(vb_byte_size, &render_ctx->land_geom.vb_cpu);
+    CopyMemory(render_ctx->land_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
 
-    D3DCreateBlob(ib_byte_size, &render_ctx->geom.ib_cpu);
-    CopyMemory(render_ctx->geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
+    D3DCreateBlob(ib_byte_size, &render_ctx->land_geom.ib_cpu);
+    CopyMemory(render_ctx->land_geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
 
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom.vb_uploader, &render_ctx->geom.vb_gpu);
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom.ib_uploader, &render_ctx->geom.ib_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->land_geom.vb_uploader, &render_ctx->land_geom.vb_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->land_geom.ib_uploader, &render_ctx->land_geom.ib_gpu);
 
-    render_ctx->geom.vb_byte_stide = sizeof(Vertex);
-    render_ctx->geom.vb_byte_size = vb_byte_size;
-    render_ctx->geom.ib_byte_size = ib_byte_size;
+    render_ctx->land_geom.vb_byte_stide = sizeof(Vertex);
+    render_ctx->land_geom.vb_byte_size = vb_byte_size;
+    render_ctx->land_geom.ib_byte_size = ib_byte_size;
 
-    render_ctx->geom.submesh_names[_BOX_ID] = "box";
-    render_ctx->geom.submesh_geoms[_BOX_ID] = box_submesh;
-    render_ctx->geom.submesh_names[_GRID_ID] = "grid";
-    render_ctx->geom.submesh_geoms[_GRID_ID] = grid_submesh;
-    render_ctx->geom.submesh_names[_SPHERE_ID] = "shpere";
-    render_ctx->geom.submesh_geoms[_SPHERE_ID] = sphere_submesh;
-    render_ctx->geom.submesh_names[_CYLINDER_ID] = "cylinder";
-    render_ctx->geom.submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
+    SubmeshGeometry submesh;
+    submesh.index_count = _GRID_IDX_CNT;
+    submesh.start_index_location = 0;
+    submesh.base_vertex_location = 0;
+
+    render_ctx->land_geom.submesh_names[0] = "grid";
+    render_ctx->land_geom.submesh_geoms[0] = submesh;
+}
+static void
+create_water_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
+
+    // Iterate over each quad.
+    int m = render_ctx->waves.nrow;
+    int n = render_ctx->waves.ncol;
+    int k = 0;
+    for (int i = 0; i < m - 1; ++i) {
+        for (int j = 0; j < n - 1; ++j) {
+            indices[k] = i * n + j;
+            indices[k + 1] = i * n + j + 1;
+            indices[k + 2] = (i + 1) * n + j;
+
+            indices[k + 3] = (i + 1) * n + j;
+            indices[k + 4] = i * n + j + 1;
+            indices[k + 5] = (i + 1) * n + j + 1;
+
+            k += 6; // next quad
+        }
+    }
+
+    UINT vb_byte_size = render_ctx->waves.nvtx * sizeof(Vertex);
+    UINT ib_byte_size = _WAVE_IDX_CNT * sizeof(uint16_t);
+
+    // -- Fill out render_ctx geom (output)
+
+    D3DCreateBlob(vb_byte_size, &render_ctx->water_geom.vb_cpu);
+    CopyMemory(render_ctx->water_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+
+    D3DCreateBlob(ib_byte_size, &render_ctx->water_geom.ib_cpu);
+    CopyMemory(render_ctx->water_geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
+
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->water_geom.vb_uploader, &render_ctx->water_geom.vb_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->water_geom.ib_uploader, &render_ctx->water_geom.ib_gpu);
+
+    render_ctx->water_geom.vb_byte_stide = sizeof(Vertex);
+    render_ctx->water_geom.vb_byte_size = vb_byte_size;
+    render_ctx->water_geom.ib_byte_size = ib_byte_size;
+
+    SubmeshGeometry submesh;
+    submesh.index_count = _WAVE_IDX_CNT;
+    submesh.start_index_location = 0;
+    submesh.base_vertex_location = 0;
+
+    render_ctx->water_geom.submesh_names[1] = "water";
+    render_ctx->water_geom.submesh_geoms[1] = submesh;
 }
 static void
 create_render_items (RenderItem render_items [], MeshGeometry * geom) {
@@ -812,6 +789,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.scissor_rect.right = global_scene_ctx.width;
     render_ctx.scissor_rect.bottom = global_scene_ctx.height;
 
+    Waves_Init(&render_ctx.waves, 128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
+
     // Query Adapter (PhysicalDevice)
     IDXGIFactory * dxgi_factory = nullptr;
     CHECK_AND_FAIL(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgi_factory)));
@@ -1014,11 +993,15 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma region Shapes and RenderItems Creation
 
-    Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
-    uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
-    BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    Vertex * land_vertices = (Vertex *)::malloc(sizeof(Vertex) * _GRID_VTX_CNT);
+    uint16_t * land_indices = (uint16_t *)::malloc(sizeof(uint16_t) * _GRID_IDX_CNT);
+    create_land_geometry(&render_ctx, land_vertices, land_indices);
+    
+    Vertex * water_vertices = (Vertex *)::malloc(sizeof(Vertex) * _WAVE_VTX_CNT);
+    uint16_t * water_indices = (uint16_t *)::malloc(3 * render_ctx.waves.ntri); // 3 indices per face
+    SIMPLE_ASSERT(render_ctx.waves.nvtx < 0x0000ffff, "Invalid vertex count");
+    create_water_geometry(&render_ctx, water_vertices, water_indices);
 
-    create_shape_geometry(memory, &render_ctx, vts, ids);
     create_render_items(render_ctx.render_items, &render_ctx.geom);
 
 #pragma endregion Shapes and RenderItems Creation

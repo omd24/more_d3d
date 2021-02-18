@@ -160,6 +160,7 @@
     <ClInclude Include="headers\dynarray.h" />
     <ClInclude Include="headers\mesh_geometry.h" />
     <ClInclude Include="headers\utils.h" />
+    <ClInclude Include="waves.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -32,6 +32,9 @@
     <ClInclude Include="headers\utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="waves.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="shaders\color.hlsl">
