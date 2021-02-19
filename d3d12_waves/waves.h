@@ -79,7 +79,7 @@ Waves_GetTangentX (Waves * wave, int i) {
     return wave->tangent_x[i];
 }
 inline void
-Waves_Update (Waves * wave, float dt) {
+Waves_Update (Waves * wave, float dt, XMFLOAT3 temp []) {
     static float t = 0;
 
         // Accumulate time.
@@ -116,7 +116,6 @@ Waves_Update (Waves * wave, float dt) {
         // current solution becomes the new previous solution.
 
         // Swap prev with curr solution
-        XMFLOAT3 temp[WAVE_VTX_CNT];
         for (unsigned i = 0; i < WAVE_VTX_CNT; i++) {
         //write any swapping technique
             temp[i] = wave->prev_sol[i];

@@ -350,7 +350,6 @@ draw_render_items (
     RenderItem render_items [],
     UINT current_frame_index
 ) {
-    current_frame_index = (current_frame_index + 1) % NUM_QUEUING_FRAMES;
     for (size_t i = 0; i < OBJ_COUNT; ++i) {
         D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
         D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
@@ -1074,6 +1073,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
             DispatchMessageA(&msg);
         }
         // OnUpdate()
+
         update_camera(&global_scene_ctx);
         update_pass_cbuffers(&render_ctx);
         update_obj_cbuffers(&render_ctx);

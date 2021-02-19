@@ -26,6 +26,7 @@
 
 #include "./headers/dynarray.h"
 #include "./headers/utils.h"
+#include "./headers/game_timer.h"
 
 #include "waves.h"
 
@@ -36,14 +37,11 @@
 #define NUM_QUEUING_FRAMES      3
 
 #define MAX_RENDERITEM_COUNT    50
-// TODO(omid): store render_items_count at run-time
-#define OBJ_COUNT   22
+#define OBJ_COUNT   2       /* water and land */
 
-enum SUBMESH_INDEX {
-    _BOX_ID,
+enum RENDERITEM_INDEX {
+    _WATER_ID,
     _GRID_ID,
-    _SPHERE_ID,
-    _CYLINDER_ID
 };
 
 struct SceneContext {
@@ -66,6 +64,7 @@ struct SceneContext {
     float aspect_ratio;
 };
 
+GameTimer global_timer;
 bool global_running;
 SceneContext global_scene_ctx;
 
@@ -88,11 +87,10 @@ struct D3DRenderContext {
     PassConstantBuffer              main_pass_constants;
 
     // render items
-    //UINT                            obj_count;
-    RenderItem                      render_items[MAX_RENDERITEM_COUNT];
+    RenderItem                      render_items[2];    /* water and land */
     UINT                            pass_cbv_offset;
 
-    Waves                           waves;
+    Waves *                         waves;
 
     // TODO(omid): heap-alloc the mesh_geom(s)
     // TODO(omid): store geom(s) in an array
@@ -128,9 +126,8 @@ static float calc_hill_height (float x, float z) {
     return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
 }
 static void
-create_land_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
+create_land_geometry (D3DRenderContext * render_ctx, GeomVertex grid [], Vertex vertices [], uint16_t indices []) {
 
-    GeomVertex grid[_GRID_VTX_CNT];
     create_grid(160.0f, 160.0f, 50, 50, grid, indices);
 
     // Extract the vertex elements we are interested and apply the height function to
@@ -166,7 +163,7 @@ create_land_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16_
 
     // -- Fill out render_ctx geom (output)
 
-    D3DCreateBlob(vb_byte_size, &render_ctx->land_geom.vb_cpu);
+    CHECK_AND_FAIL(D3DCreateBlob(vb_byte_size, &render_ctx->land_geom.vb_cpu));
     CopyMemory(render_ctx->land_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
 
     D3DCreateBlob(ib_byte_size, &render_ctx->land_geom.ib_cpu);
@@ -191,8 +188,8 @@ static void
 create_water_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
 
     // Iterate over each quad.
-    int m = render_ctx->waves.nrow;
-    int n = render_ctx->waves.ncol;
+    int m = render_ctx->waves->nrow;
+    int n = render_ctx->waves->ncol;
     int k = 0;
     for (int i = 0; i < m - 1; ++i) {
         for (int j = 0; j < n - 1; ++j) {
@@ -208,18 +205,18 @@ create_water_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16
         }
     }
 
-    UINT vb_byte_size = render_ctx->waves.nvtx * sizeof(Vertex);
+    UINT vb_byte_size = render_ctx->waves->nvtx * sizeof(Vertex);
     UINT ib_byte_size = _WAVE_IDX_CNT * sizeof(uint16_t);
 
     // -- Fill out render_ctx geom (output)
 
-    D3DCreateBlob(vb_byte_size, &render_ctx->water_geom.vb_cpu);
-    CopyMemory(render_ctx->water_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+    //D3DCreateBlob(vb_byte_size, &render_ctx->water_geom.vb_cpu);
+    //CopyMemory(render_ctx->water_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
 
-    D3DCreateBlob(ib_byte_size, &render_ctx->water_geom.ib_cpu);
+    CHECK_AND_FAIL(D3DCreateBlob(ib_byte_size, &render_ctx->water_geom.ib_cpu));
     CopyMemory(render_ctx->water_geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
 
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->water_geom.vb_uploader, &render_ctx->water_geom.vb_gpu);
+    //create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->water_geom.vb_uploader, &render_ctx->water_geom.vb_gpu);
     create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->water_geom.ib_uploader, &render_ctx->water_geom.ib_gpu);
 
     render_ctx->water_geom.vb_byte_stide = sizeof(Vertex);
@@ -231,138 +228,57 @@ create_water_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16
     submesh.start_index_location = 0;
     submesh.base_vertex_location = 0;
 
-    render_ctx->water_geom.submesh_names[1] = "water";
-    render_ctx->water_geom.submesh_geoms[1] = submesh;
+    render_ctx->water_geom.submesh_names[0] = "water";
+    render_ctx->water_geom.submesh_geoms[0] = submesh;
 }
 static void
-create_render_items (RenderItem render_items [], MeshGeometry * geom) {
-    // NOTE(omid): RenderItems elements 
-    /*
-        0: box
-        1: grid
-        2-22: cylinders and spheres
-    */
+create_render_items (RenderItem render_items [], MeshGeometry * water_geom, MeshGeometry * land_geom) {
+    render_items[_WATER_ID].world = Identity4x4();
+    render_items[_WATER_ID].obj_cbuffer_index = 0;
+    render_items[_WATER_ID].geometry = water_geom;
+    render_items[_WATER_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_WATER_ID].index_count = water_geom->submesh_geoms[0].index_count;
+    render_items[_WATER_ID].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
+    render_items[_WATER_ID].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
 
-    UINT _curr = 0;
+    render_items[_GRID_ID].world = Identity4x4();
+    render_items[_GRID_ID].obj_cbuffer_index = 1;
+    render_items[_GRID_ID].geometry = land_geom;
+    render_items[_GRID_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_GRID_ID].index_count = land_geom->submesh_geoms[0].index_count;
+    render_items[_GRID_ID].start_index_loc = land_geom->submesh_geoms[0].start_index_location;
+    render_items[_GRID_ID].base_vertex_loc = land_geom->submesh_geoms[0].base_vertex_location;
 
-    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
-    render_items[_curr].obj_cbuffer_index = _curr;
-    render_items[_curr].geometry = geom;
-    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_curr].index_count = geom->submesh_geoms[_BOX_ID].index_count;
-    render_items[_curr].start_index_loc = geom->submesh_geoms[_BOX_ID].start_index_location;
-    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_BOX_ID].base_vertex_location;
-    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-    ++_curr;
-
-    render_items[_curr].world = Identity4x4();
-    render_items[_curr].obj_cbuffer_index = _curr;
-    render_items[_curr].geometry = geom;
-    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_curr].index_count = geom->submesh_geoms[_GRID_ID].index_count;
-    render_items[_curr].start_index_loc = geom->submesh_geoms[_GRID_ID].start_index_location;
-    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_GRID_ID].base_vertex_location;
-    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-    ++_curr;
-
-    for (int i = 0; i < 5; ++i) {
-        XMMATRIX left_cylinder_world = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i * 5.0f);
-        XMMATRIX right_cylinder_world = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i * 5.0f);
-
-        XMMATRIX left_sphere_world = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
-        XMMATRIX right_sphere_world = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
-
-        XMStoreFloat4x4(&render_items[_curr].world, right_cylinder_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-
-        XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-
-        XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-
-        XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-    }
 }
 // -- indexed drawing
 static void
 draw_render_items (
     ID3D12GraphicsCommandList * cmd_list,
-    ID3D12DescriptorHeap * cbv_heap,
+    ID3D12Resource * object_cbuffer,
     UINT64 descriptor_increment_size,
     RenderItem render_items [],
     UINT current_frame_index
 ) {
-    current_frame_index = (current_frame_index + 1) % NUM_QUEUING_FRAMES;
+    UINT objcb_byte_size = (UINT64)sizeof(ObjectConstantBuffer);
+
+    // For each render item...
     for (size_t i = 0; i < OBJ_COUNT; ++i) {
+        RenderItem * ri = &render_items[i];
+
         D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
         D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
+
         cmd_list->IASetVertexBuffers(0, 1, &vbv);
         cmd_list->IASetIndexBuffer(&ibv);
         cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
 
-        // Offset to the CBV in the descriptor heap for this object and for this frame resource.
-        UINT cbv_index = current_frame_index * OBJ_COUNT + render_items[i].obj_cbuffer_index;
+        D3D12_GPU_VIRTUAL_ADDRESS objcb_address = object_cbuffer->GetGPUVirtualAddress();
+        objcb_address += (UINT64)render_items[i].obj_cbuffer_index * objcb_byte_size;
 
-        D3D12_GPU_DESCRIPTOR_HANDLE cbv_handle = {};
-        cbv_handle.ptr = cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + cbv_index * descriptor_increment_size;
+        cmd_list->SetGraphicsRootConstantBufferView(0, objcb_address);
 
-        cmd_list->SetGraphicsRootDescriptorTable(0, cbv_handle);
         cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
     }
-}
-static void
-create_descriptor_heaps (D3DRenderContext * render_ctx) {
-
-    //// Need a CBV descriptor for each object for each frame resource,
-    //// +1 for the per-pass CBV for each frame resource.
-    //UINT n_descriptors = (OBJ_COUNT + 1) * NUM_QUEUING_FRAMES;
-
-    //// Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
-    //render_ctx->pass_cbv_offset = OBJ_COUNT * NUM_QUEUING_FRAMES;
-
-    //D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc = {};
-    //cbv_heap_desc.NumDescriptors = n_descriptors;
-    //cbv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    //cbv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    //cbv_heap_desc.NodeMask = 0;
-    //render_ctx->device->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&render_ctx->cbv_heap));
-
-    // Create Render Target View Descriptor Heap
-    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
-    rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
-    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    CHECK_AND_FAIL(render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap)));
 }
 static void
 create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
@@ -372,11 +288,11 @@ create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signat
     // Create root CBVs.
     slot_root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     slot_root_params[0].Descriptor.ShaderRegister = 0;
-    slot_root_params[0].Descriptor.RegisterSpace = 1;
+    slot_root_params[0].Descriptor.RegisterSpace = 0;
     slot_root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     slot_root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    slot_root_params[1].Descriptor.ShaderRegister = 0;
+    slot_root_params[1].Descriptor.ShaderRegister = 1;
     slot_root_params[1].Descriptor.RegisterSpace = 0;
     slot_root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
@@ -465,6 +381,16 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     CHECK_AND_FAIL(render_ctx->device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx->pso)));
 }
 static void
+create_rtv_descriptor_heap (D3DRenderContext * render_ctx) {
+
+    // Create Render Target View Descriptor Heap
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+    rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    CHECK_AND_FAIL(render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap)));
+}
+static void
 handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
     if ((wParam & MK_LBUTTON) != 0) {
         // make each pixel correspond to a quarter of a degree
@@ -519,18 +445,6 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
             ObjectConstantBuffer obj_cbuffer = {};
             XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
 
-            //// -- color change experiment
-            //srand((unsigned)time(0));
-            //int lb = 0;
-            //int ub = 1000;
-            //static int rn = rand() % ((ub - lb) + lb);
-            //++rn;
-            //rn = (rn > ub) ? 0 : rn;
-            //if (rn < 6 && i > 2)
-            //    obj_cbuffer.color = XMFLOAT4(DirectX::Colors::Crimson);
-            //else
-            //    obj_cbuffer.color = XMFLOAT4(0, 0, 0, 0);
-
             uint8_t * obj_ptr = render_ctx->frame_resources[frame_index].obj_cb_data_ptr + ((UINT64)obj_index * cbuffer_size);
             memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
 
@@ -540,7 +454,7 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
     }
 }
 static void
-update_pass_cbuffers (D3DRenderContext * render_ctx) {
+update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
 
     XMMATRIX view = XMLoadFloat4x4(&global_scene_ctx.view);
     XMMATRIX proj = XMLoadFloat4x4(&global_scene_ctx.proj);
@@ -565,10 +479,75 @@ update_pass_cbuffers (D3DRenderContext * render_ctx) {
     render_ctx->main_pass_constants.inverse_render_target_size = XMFLOAT2(1.0f / global_scene_ctx.width, 1.0f / global_scene_ctx.height);
     render_ctx->main_pass_constants.nearz = 1.0f;
     render_ctx->main_pass_constants.farz = 1000.0f;
+    render_ctx->main_pass_constants.delta_time = timer->delta_time;
+    render_ctx->main_pass_constants.total_time = Timer_GetTotalTime(timer);
 
     uint8_t * pass_ptr = render_ctx->frame_resources[render_ctx->frame_index].pass_cb_data_ptr;
     memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstantBuffer));
 }
+static int
+rand_int (int a, int b) {
+    return a + rand() % ((b - a) + 1);
+}
+// Returns random float in [0, 1).
+static float
+rand_float () {
+    return (float)(rand()) / (float)RAND_MAX;
+}
+// Returns random float in [a, b).
+static float
+rand_float (float a, float b) {
+    return a + rand_float() * (b - a);
+}
+static void
+update_waves_vb (D3DRenderContext * render_ctx, GameTimer * timer) {
+    float total_time = Timer_GetTotalTime(timer);
+    float delta_time = timer->delta_time;
+
+    // Every quarter second, generate a random wave.
+    static float t_base = 0.0f;
+    if ((total_time - t_base) >= 0.25f) {
+        t_base += 0.25f;
+
+        int i = rand_int(4, render_ctx->waves->nrow - 5);
+        int j = rand_int(4, render_ctx->waves->ncol - 5);
+
+        float r = rand_float(0.2f, 0.5f);
+
+        Waves_Disturb(render_ctx->waves, i, j, r);
+    }
+
+    // Update the wave simulation.
+    XMFLOAT3 * temp = (XMFLOAT3 *)::malloc(sizeof(XMFLOAT3) * WAVE_VTX_CNT);
+    Waves_Update(render_ctx->waves, delta_time, temp);
+    ::free(temp);
+
+    // Update the wave vertex buffer with the new solution.
+    UINT frame_index = render_ctx->frame_index;
+    uint8_t * wave_ptr = render_ctx->frame_resources[frame_index].waves_vb_data_ptr;
+
+    D3D12_RANGE mem_range = {};
+    mem_range.Begin = 0;
+    mem_range.End = 0;
+    CHECK_AND_FAIL(
+        render_ctx->frame_resources[frame_index].waves_vb->Map(0, &mem_range, reinterpret_cast<void**>(&wave_ptr))
+    );
+
+    UINT v_size = (UINT64)sizeof(Vertex);
+    for (int i = 0; i < WAVE_VTX_CNT; ++i) {
+        Vertex v;
+
+        v.Pos = Waves_GetPosition(render_ctx->waves, i);
+        v.Color = XMFLOAT4(DirectX::Colors::Blue);
+
+        ::memcpy(wave_ptr + (UINT64)i * v_size, &v, v_size);
+    }
+    // NOTE(omid): We did the upload_buffer mapping to data pointer (when creating the upload_buffer)
+
+    // Set the dynamic VB of the wave renderitem to the current frame VB.
+    render_ctx->render_items[_WATER_ID].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
+}
+
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
 
@@ -668,17 +647,13 @@ draw_main (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, clear_colors, 0, nullptr);
     render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
 
-    ID3D12DescriptorHeap * heaps [] = {render_ctx->cbv_heap};
-    render_ctx->direct_cmd_list->SetDescriptorHeaps(ARRAY_COUNT(heaps), heaps);
-
     render_ctx->direct_cmd_list->SetGraphicsRootSignature(render_ctx->root_signature);
 
-    int pass_cbv_index = render_ctx->pass_cbv_offset + frame_index;
-    D3D12_GPU_DESCRIPTOR_HANDLE pass_cbv_handle = {};
-    pass_cbv_handle.ptr = render_ctx->cbv_heap->GetGPUDescriptorHandleForHeapStart().ptr + pass_cbv_index * (UINT64)render_ctx->cbv_srv_uav_descriptor_size;
-    render_ctx->direct_cmd_list->SetGraphicsRootDescriptorTable(1, pass_cbv_handle);
+    // Bind per-pass constant buffer.  We only need to do this once per-pass.
+    ID3D12Resource * pass_cb = render_ctx->frame_resources[frame_index].pass_cb;
+    render_ctx->direct_cmd_list->SetGraphicsRootConstantBufferView(1, pass_cb->GetGPUVirtualAddress());
 
-    draw_render_items(render_ctx->direct_cmd_list, render_ctx->cbv_heap, render_ctx->cbv_srv_uav_descriptor_size, render_ctx->render_items, frame_index);
+    draw_render_items(render_ctx->direct_cmd_list, render_ctx->frame_resources[frame_index].obj_cb, render_ctx->cbv_srv_uav_descriptor_size, render_ctx->render_items, frame_index);
 
     // -- indicate that the backbuffer will now be used to present
     D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->render_targets[backbuffer_index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -789,7 +764,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.scissor_rect.right = global_scene_ctx.width;
     render_ctx.scissor_rect.bottom = global_scene_ctx.height;
 
-    Waves_Init(&render_ctx.waves, 128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
+    render_ctx.waves = (Waves *)::malloc(sizeof(Waves));
+    Waves_Init(render_ctx.waves, 128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
 
     // Query Adapter (PhysicalDevice)
     IDXGIFactory * dxgi_factory = nullptr;
@@ -857,7 +833,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     // ========================================================================================================
 #pragma region Descriptor Heaps Creation
-    create_descriptor_heaps(&render_ctx);
+    create_rtv_descriptor_heap(&render_ctx);
 #pragma endregion Descriptor Heaps Creation
 
     // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
@@ -875,6 +851,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     UINT obj_cb_size = sizeof(ObjectConstantBuffer);
     UINT pass_cb_size = sizeof(PassConstantBuffer);
+    UINT vertex_size = sizeof(Vertex);
     for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
 
         // -- create a cmd-allocator for each frame
@@ -885,49 +862,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // Initialize cb data
         ::memcpy(render_ctx.frame_resources[i].obj_cb_data_ptr, &render_ctx.frame_resources[i].obj_cb_data, sizeof(render_ctx.frame_resources[i].obj_cb_data));
 
-        create_upload_buffer(render_ctx.device, pass_cb_size, &render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb);
+        create_upload_buffer(render_ctx.device, pass_cb_size * 1, &render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb);
         // Initialize cb data
         ::memcpy(render_ctx.frame_resources[i].pass_cb_data_ptr, &render_ctx.frame_resources[i].pass_cb_data, sizeof(render_ctx.frame_resources[i].pass_cb_data));
-    }
 
-    for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
-        // 1. per obj cbuffer
-        {
-            // create constant buffer view.
-            for (UINT j = 0; j < OBJ_COUNT; ++j) {
-                D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].obj_cb->GetGPUVirtualAddress();
-
-                // Offset to the ith object constant buffer in the buffer.
-                cb_address += j * (UINT64)obj_cb_size;
-
-                // Offset to the object cbv in the descriptor heap.
-                int heap_index = i * OBJ_COUNT + j;
-
-                D3D12_CPU_DESCRIPTOR_HANDLE cbv_handle = {};
-                cbv_handle.ptr = render_ctx.cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + heap_index * (UINT64)render_ctx.cbv_srv_uav_descriptor_size;
-
-                D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
-                cbv_desc.BufferLocation = cb_address;
-                cbv_desc.SizeInBytes = obj_cb_size;
-
-                render_ctx.device->CreateConstantBufferView(&cbv_desc, cbv_handle);
-            }
-        }
-        // 2. per pass cbuffer
-        {
-            D3D12_GPU_VIRTUAL_ADDRESS cb_address = render_ctx.frame_resources[i].pass_cb->GetGPUVirtualAddress();
-
-            // Offset to the pass cbv in the descriptor heap.
-            int heap_index = render_ctx.pass_cbv_offset + i;
-            D3D12_CPU_DESCRIPTOR_HANDLE handle = {};
-            handle.ptr = render_ctx.cbv_heap->GetCPUDescriptorHandleForHeapStart().ptr + heap_index * (UINT64)render_ctx.cbv_srv_uav_descriptor_size;
-
-            D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
-            cbv_desc.BufferLocation = cb_address;
-            cbv_desc.SizeInBytes = pass_cb_size;
-
-            render_ctx.device->CreateConstantBufferView(&cbv_desc, handle);
-        }
+        create_upload_buffer(render_ctx.device, (UINT64)vertex_size * _WAVE_VTX_CNT, &render_ctx.frame_resources[i].waves_vb_data_ptr, &render_ctx.frame_resources[i].waves_vb);
+        // Initialize cb data
+        ::memcpy(render_ctx.frame_resources[i].waves_vb_data_ptr, &render_ctx.frame_resources[i].waves_vb_data, sizeof(render_ctx.frame_resources[i].waves_vb_data));
     }
 
     CHECK_AND_FAIL(res);
@@ -995,14 +936,15 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     Vertex * land_vertices = (Vertex *)::malloc(sizeof(Vertex) * _GRID_VTX_CNT);
     uint16_t * land_indices = (uint16_t *)::malloc(sizeof(uint16_t) * _GRID_IDX_CNT);
-    create_land_geometry(&render_ctx, land_vertices, land_indices);
-    
+    GeomVertex * land_grid = (GeomVertex *)::malloc(sizeof(GeomVertex) * _GRID_VTX_CNT);
+    create_land_geometry(&render_ctx, land_grid, land_vertices, land_indices);
+
     Vertex * water_vertices = (Vertex *)::malloc(sizeof(Vertex) * _WAVE_VTX_CNT);
-    uint16_t * water_indices = (uint16_t *)::malloc(3 * render_ctx.waves.ntri); // 3 indices per face
-    SIMPLE_ASSERT(render_ctx.waves.nvtx < 0x0000ffff, "Invalid vertex count");
+    uint16_t * water_indices = (uint16_t *)::malloc(3 * (UINT64)render_ctx.waves->ntri * sizeof(uint16_t)); // 3 indices per face
+    SIMPLE_ASSERT(render_ctx.waves->nvtx < 0x0000ffff, "Invalid vertex count");
     create_water_geometry(&render_ctx, water_vertices, water_indices);
 
-    create_render_items(render_ctx.render_items, &render_ctx.geom);
+    create_render_items(render_ctx.render_items, &render_ctx.water_geom, &render_ctx.land_geom);
 
 #pragma endregion Shapes and RenderItems Creation
 
@@ -1037,16 +979,21 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // ========================================================================================================
 #pragma region Main_Loop
     global_running = true;
+    Timer_Reset(&global_timer);
     while (global_running) {
         MSG msg = {};
         while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessageA(&msg);
         }
+
+        Timer_Tick(&global_timer);
+
         // OnUpdate()
         update_camera(&global_scene_ctx);
-        update_pass_cbuffers(&render_ctx);
+        update_pass_cbuffers(&render_ctx, &global_timer);
         update_obj_cbuffers(&render_ctx);
+        update_waves_vb(&render_ctx, &global_timer);
 
         // OnRender() aka rendering
         CHECK_AND_FAIL(draw_main(&render_ctx));
@@ -1073,11 +1020,17 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx.frame_resources[i].cmd_list_alloc->Release();
     }
 
-    render_ctx.geom.ib_uploader->Release();
-    render_ctx.geom.vb_uploader->Release();
+    render_ctx.water_geom.ib_uploader->Release();
+    //render_ctx.water_geom.vb_uploader->Release();
 
-    render_ctx.geom.ib_gpu->Release();
-    render_ctx.geom.vb_gpu->Release();
+    render_ctx.water_geom.ib_gpu->Release();
+    render_ctx.water_geom.vb_gpu->Release();
+
+    render_ctx.land_geom.ib_uploader->Release();
+    render_ctx.land_geom.vb_uploader->Release();
+
+    render_ctx.land_geom.ib_gpu->Release();
+    render_ctx.land_geom.vb_gpu->Release();
 
     render_ctx.direct_cmd_list->Release();
     render_ctx.pso->Release();
@@ -1092,7 +1045,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx.render_targets[i]->Release();
     }
 
-    render_ctx.cbv_heap->Release();
     render_ctx.rtv_heap->Release();
 
     render_ctx.swapchain3->Release();

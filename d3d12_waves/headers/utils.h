@@ -43,6 +43,16 @@ struct PassConstantBuffer {
 };
 static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
 
+struct Vertex {
+    XMFLOAT3 Pos;
+    XMFLOAT4 Color;
+};
+struct GeomVertex {
+    XMFLOAT3 Position;
+    XMFLOAT3 Normal;
+    XMFLOAT3 TangentU;
+    XMFLOAT2 TexC;
+};
 
 // FrameResource stores the resources needed for the CPU to build the command lists for a frame.
 struct FrameResource {
@@ -59,6 +69,12 @@ struct FrameResource {
     ID3D12Resource * obj_cb;
     ObjectConstantBuffer obj_cb_data;
     uint8_t * obj_cb_data_ptr;
+
+    // We cannot update a dynamic vertex buffer until the GPU is done processing
+    // the commands that reference it.  So each frame needs their own.
+    ID3D12Resource * waves_vb;
+    Vertex waves_vb_data;
+    uint8_t * waves_vb_data_ptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.
@@ -91,20 +107,6 @@ struct RenderItem {
     MeshGeometry * geometry;
 };
 
-struct Vertex {
-    XMFLOAT3 Pos;
-    XMFLOAT4 Color;
-};
-struct GeomVertex {
-    XMFLOAT3 Position;
-    XMFLOAT3 Normal;
-    XMFLOAT3 TangentU;
-    XMFLOAT2 TexC;
-};
-struct TextuVertex {
-    XMFLOAT3 position;
-    XMFLOAT2 uv;
-};
 static XMFLOAT4X4
 Identity4x4() {
     static XMFLOAT4X4 I(

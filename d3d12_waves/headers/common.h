@@ -30,7 +30,6 @@
 
 #define SIMPLE_ASSERT_FALSE(exp, msg)   SIMPLE_ASSERT(!exp, msg)
 
-
 #define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
 //#define SUCCEEDED_OPERATION(hr)   (((HRESULT)(hr)) == S_OK)
 #define FAILED(hr)      (((HRESULT)(hr)) < 0)
