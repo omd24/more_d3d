@@ -83,6 +83,7 @@ struct D3DRenderContext {
     UINT                            cbv_srv_uav_descriptor_size;
 
     ID3D12DescriptorHeap *          rtv_heap;
+    ID3D12DescriptorHeap *          dsv_heap;
 
     PassConstantBuffer              main_pass_constants;
 
@@ -106,6 +107,8 @@ struct D3DRenderContext {
     // Each swapchain backbuffer needs a render target
     ID3D12Resource *                render_targets[NUM_BACKBUFFERS];
     UINT                            backbuffer_index;
+
+    ID3D12Resource *                depth_stencil_buffer;
 
     // TODO(omid): Do we need the followings now? 
     FrameResource * current_frame_resource;
@@ -360,6 +363,18 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     def_rasterizer_desc.ForcedSampleCount = 0;
     def_rasterizer_desc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
+    /* Depth Stencil Description */
+    D3D12_DEPTH_STENCIL_DESC ds_desc = {};
+    ds_desc.DepthEnable = TRUE;
+    ds_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    ds_desc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    ds_desc.StencilEnable = FALSE;
+    ds_desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+    ds_desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+    D3D12_DEPTH_STENCILOP_DESC def_stencil_op = {D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS};
+    ds_desc.FrontFace = def_stencil_op;
+    ds_desc.BackFace = def_stencil_op;
+
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
     pso_desc.pRootSignature = render_ctx->root_signature;
     pso_desc.VS.pShaderBytecode = vertex_shader_code->GetBufferPointer();
@@ -369,8 +384,7 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     pso_desc.BlendState = def_blend_desc;
     pso_desc.SampleMask = UINT_MAX;
     pso_desc.RasterizerState = def_rasterizer_desc;
-    pso_desc.DepthStencilState.StencilEnable = FALSE;
-    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState = ds_desc;
     pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     pso_desc.InputLayout.pInputElementDescs = input_desc;
     pso_desc.InputLayout.NumElements = ARRAY_COUNT(input_desc);
@@ -383,7 +397,7 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     CHECK_AND_FAIL(render_ctx->device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx->pso)));
 }
 static void
-create_rtv_descriptor_heap (D3DRenderContext * render_ctx) {
+create_rtv_dsv_descriptor_heap (D3DRenderContext * render_ctx) {
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
@@ -391,6 +405,15 @@ create_rtv_descriptor_heap (D3DRenderContext * render_ctx) {
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     CHECK_AND_FAIL(render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap)));
+
+
+    // Create Depth Stencil View Descriptor Heap
+    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc;
+    dsv_heap_desc.NumDescriptors = 1;
+    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    dsv_heap_desc.NodeMask = 0;
+    render_ctx->device->CreateDescriptorHeap(&dsv_heap_desc, IID_PPV_ARGS(&render_ctx->dsv_heap));
 }
 static void
 handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
@@ -414,7 +437,7 @@ handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         scene_ctx->radius += dx - dy;
 
         // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 350.0f);
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
     }
     scene_ctx->mouse.x = x;
     scene_ctx->mouse.y = y;
@@ -642,12 +665,13 @@ draw_main (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier1);
 
     // -- get CPU descriptor handle that represents the start of the rtv heap
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = render_ctx->dsv_heap->GetCPUDescriptorHandleForHeapStart();
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
-    // -- apply initial offset
-    rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->backbuffer_index) * INT64(render_ctx->rtv_descriptor_size));
+    rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->backbuffer_index) * INT64(render_ctx->rtv_descriptor_size));    // -- apply initial offset
     float clear_colors [] = {0.2f, 0.3f, 0.5f, 1.0f};
     render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, clear_colors, 0, nullptr);
-    render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
+    render_ctx->direct_cmd_list->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, true, &dsv_handle);
 
     render_ctx->direct_cmd_list->SetGraphicsRootSignature(render_ctx->root_signature);
 
@@ -745,8 +769,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma region Initialization
     global_scene_ctx = {.width = 1280, .height = 720};
     global_scene_ctx.theta = 1.5f * XM_PI;
-    global_scene_ctx.phi = 0.2f * XM_PI;
-    global_scene_ctx.radius = 150.0f;
+    global_scene_ctx.phi = XM_PIDIV2 - 0.1f;
+    global_scene_ctx.radius = 50.0f;
     global_scene_ctx.aspect_ratio = (float)global_scene_ctx.width / (float)global_scene_ctx.height;
     global_scene_ctx.eye_pos = {0.0f, 0.0f, 0.0f};
     global_scene_ctx.view = Identity4x4();
@@ -834,10 +858,65 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     render_ctx.backbuffer_index = render_ctx.swapchain3->GetCurrentBackBufferIndex();
 
     // ========================================================================================================
-#pragma region Descriptor Heaps Creation
-    create_rtv_descriptor_heap(&render_ctx);
-#pragma endregion Descriptor Heaps Creation
 
+    create_rtv_dsv_descriptor_heap(&render_ctx);
+
+#pragma region Create DSV
+// Create the depth/stencil buffer and view.
+    D3D12_RESOURCE_DESC ds_desc;
+    ds_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    ds_desc.Alignment = 0;
+    ds_desc.Width = global_scene_ctx.width;
+    ds_desc.Height = global_scene_ctx.height;
+    ds_desc.DepthOrArraySize = 1;
+    ds_desc.MipLevels = 1;
+
+    // NOTE(omid): SSAO requires an SRV to the depth buffer to read from 
+    // the depth buffer.  Therefore, because we need to create two views to the same resource:
+    //   1. SRV format: DXGI_FORMAT_R24_UNORM_X8_TYPELESS
+    //   2. DSV Format: DXGI_FORMAT_D24_UNORM_S8_UINT
+    // we need to create the depth buffer resource with a typeless format.  
+    ds_desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+
+    ds_desc.SampleDesc.Count = 1;
+    ds_desc.SampleDesc.Quality = 0;
+    ds_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    ds_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_HEAP_PROPERTIES ds_heap_props = {};
+    ds_heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    ds_heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    ds_heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    ds_heap_props.CreationNodeMask = 1;
+    ds_heap_props.VisibleNodeMask = 1;
+
+    D3D12_CLEAR_VALUE opt_clear;
+    opt_clear.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    opt_clear.DepthStencil.Depth = 1.0f;
+    opt_clear.DepthStencil.Stencil = 0;
+    render_ctx.device->CreateCommittedResource(
+        &ds_heap_props,
+        D3D12_HEAP_FLAG_NONE,
+        &ds_desc,
+        D3D12_RESOURCE_STATE_COMMON,
+        &opt_clear,
+        IID_PPV_ARGS(&render_ctx.depth_stencil_buffer)
+    );
+
+    // Create descriptor to mip level 0 of entire resource using the format of the resource.
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    dsv_desc.Flags = D3D12_DSV_FLAG_NONE;
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsv_desc.Texture2D.MipSlice = 0;
+    render_ctx.device->CreateDepthStencilView(
+        render_ctx.depth_stencil_buffer,
+        &dsv_desc,
+        render_ctx.dsv_heap->GetCPUDescriptorHandleForHeapStart()
+    );
+#pragma endregion Create DSV
+
+#pragma region Create RTV
     // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
     render_ctx.rtv_descriptor_size = render_ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx.rtv_heap->GetCPUDescriptorHandleForHeapStart();
@@ -850,12 +929,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // -- create a rtv for each frame
         render_ctx.device->CreateRenderTargetView(render_ctx.render_targets[i], nullptr, cpu_handle);
     }
+#pragma endregion Create RTV
 
+#pragma region Create CBuffers and Dynamic Vertex Buffer (waves_vb)
     UINT obj_cb_size = sizeof(ObjectConstantBuffer);
     UINT pass_cb_size = sizeof(PassConstantBuffer);
     UINT vertex_size = sizeof(Vertex);
     for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
-
         // -- create a cmd-allocator for each frame
         res = render_ctx.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx.frame_resources[i].cmd_list_alloc));
 
@@ -872,8 +952,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // Initialize cb data
         ::memcpy(render_ctx.frame_resources[i].waves_vb_data_ptr, &render_ctx.frame_resources[i].waves_vb_data, sizeof(render_ctx.frame_resources[i].waves_vb_data));
     }
-
     CHECK_AND_FAIL(res);
+#pragma endregion Create CBuffers and Dynamic Vertex Buffer (waves_vb)
 
     // ========================================================================================================
 #pragma region Root Signature
@@ -950,6 +1030,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma endregion Shapes and RenderItems Creation
 
+    // NOTE(omid): Before closing/executing command list specify the depth-stencil-buffer transition from its initial state to be used as a depth buffer.
+    D3D12_RESOURCE_BARRIER ds_barrier = create_barrier(render_ctx.depth_stencil_buffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    render_ctx.direct_cmd_list->ResourceBarrier(1, &ds_barrier);
+
     // -- close the command list and execute it to begin inital gpu setup
     CHECK_AND_FAIL(render_ctx.direct_cmd_list->Close());
     ID3D12CommandList * cmd_lists [] = {render_ctx.direct_cmd_list};
@@ -1017,8 +1101,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     for (size_t i = 0; i < NUM_QUEUING_FRAMES; i++) {
         render_ctx.frame_resources[i].obj_cb->Unmap(0, nullptr);
         render_ctx.frame_resources[i].pass_cb->Unmap(0, nullptr);
+        render_ctx.frame_resources[i].waves_vb->Unmap(0, nullptr);
         render_ctx.frame_resources[i].obj_cb->Release();
         render_ctx.frame_resources[i].pass_cb->Release();
+        render_ctx.frame_resources[i].waves_vb->Release();
 
         render_ctx.frame_resources[i].cmd_list_alloc->Release();
     }
@@ -1048,7 +1134,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx.render_targets[i]->Release();
     }
 
+    render_ctx.dsv_heap->Release();
     render_ctx.rtv_heap->Release();
+
+    render_ctx.depth_stencil_buffer->Release();
 
     render_ctx.swapchain3->Release();
     render_ctx.swapchain->Release();
