@@ -13,6 +13,18 @@ struct GameTimer {
 
     bool is_stopped;
 };
+inline void
+Timer_Init (GameTimer * timer) {
+    timer->delta_time = -1.0f;
+    timer->base_time = 0;
+    timer->paused_time = 0;
+    timer->prev_time = 0;
+    timer->curr_time = 0;
+    timer->is_stopped = false;
+    int64_t count_per_sec;
+    QueryPerformanceFrequency((LARGE_INTEGER*)&count_per_sec);
+    timer->sec_per_count = 1.0f / (float)count_per_sec;
+}
 inline float
 Timer_GetTotalTime (GameTimer * timer) {
     // If we are stopped, do not count the time that has passed since we stopped.

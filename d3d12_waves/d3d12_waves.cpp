@@ -240,6 +240,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * water_geom, Mesh
     render_items[_WATER_ID].index_count = water_geom->submesh_geoms[0].index_count;
     render_items[_WATER_ID].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
     render_items[_WATER_ID].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
+    render_items[_WATER_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
 
     render_items[_GRID_ID].world = Identity4x4();
     render_items[_GRID_ID].obj_cbuffer_index = 1;
@@ -248,6 +249,7 @@ create_render_items (RenderItem render_items [], MeshGeometry * water_geom, Mesh
     render_items[_GRID_ID].index_count = land_geom->submesh_geoms[0].index_count;
     render_items[_GRID_ID].start_index_loc = land_geom->submesh_geoms[0].start_index_location;
     render_items[_GRID_ID].base_vertex_loc = land_geom->submesh_geoms[0].base_vertex_location;
+    render_items[_GRID_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
 
 }
 // -- indexed drawing
@@ -348,7 +350,7 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     def_blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
     D3D12_RASTERIZER_DESC def_rasterizer_desc = {};
-    def_rasterizer_desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    def_rasterizer_desc.FillMode = D3D12_FILL_MODE_SOLID;
     def_rasterizer_desc.CullMode = D3D12_CULL_MODE_BACK;
     def_rasterizer_desc.FrontCounterClockwise = false;
     def_rasterizer_desc.DepthBias = 0;
@@ -404,15 +406,15 @@ handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         // clamp phi
         scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
     } else if ((wParam & MK_RBUTTON) != 0) {
-        // make each pixel correspond to a 0.05 unit in scene
-        float dx = 0.05f * (float)(x - scene_ctx->mouse.x);
-        float dy = 0.05f * (float)(y - scene_ctx->mouse.y);
+        // make each pixel correspond to a 0.2 unit in scene
+        float dx = 0.2f * (float)(x - scene_ctx->mouse.x);
+        float dy = 0.2f * (float)(y - scene_ctx->mouse.y);
 
         // update camera radius
         scene_ctx->radius += dx - dy;
 
         // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 350.0f);
     }
     scene_ctx->mouse.x = x;
     scene_ctx->mouse.y = y;
@@ -526,12 +528,12 @@ update_waves_vb (D3DRenderContext * render_ctx, GameTimer * timer) {
     UINT frame_index = render_ctx->frame_index;
     uint8_t * wave_ptr = render_ctx->frame_resources[frame_index].waves_vb_data_ptr;
 
-    D3D12_RANGE mem_range = {};
-    mem_range.Begin = 0;
-    mem_range.End = 0;
-    CHECK_AND_FAIL(
-        render_ctx->frame_resources[frame_index].waves_vb->Map(0, &mem_range, reinterpret_cast<void**>(&wave_ptr))
-    );
+    //D3D12_RANGE mem_range = {};
+    //mem_range.Begin = 0;
+    //mem_range.End = 0;
+    //CHECK_AND_FAIL(
+    //    render_ctx->frame_resources[frame_index].waves_vb->Map(0, &mem_range, reinterpret_cast<void**>(&wave_ptr))
+    //);
 
     UINT v_size = (UINT64)sizeof(Vertex);
     for (int i = 0; i < WAVE_VTX_CNT; ++i) {
@@ -744,7 +746,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     global_scene_ctx = {.width = 1280, .height = 720};
     global_scene_ctx.theta = 1.5f * XM_PI;
     global_scene_ctx.phi = 0.2f * XM_PI;
-    global_scene_ctx.radius = 15.0f;
+    global_scene_ctx.radius = 150.0f;
     global_scene_ctx.aspect_ratio = (float)global_scene_ctx.width / (float)global_scene_ctx.height;
     global_scene_ctx.eye_pos = {0.0f, 0.0f, 0.0f};
     global_scene_ctx.view = Identity4x4();
@@ -979,6 +981,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // ========================================================================================================
 #pragma region Main_Loop
     global_running = true;
+    Timer_Init(&global_timer);
     Timer_Reset(&global_timer);
     while (global_running) {
         MSG msg = {};
