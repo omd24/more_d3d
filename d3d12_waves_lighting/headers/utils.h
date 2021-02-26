@@ -12,19 +12,30 @@
 #include "mesh_geometry.h"
 
 #define ARRAY_COUNT(arr)                sizeof(arr)/sizeof(arr[0])
-#define CLAMP_VALUE(val, lb, ub)        val < lb ? lb : (val > ub ? ub : val); 
+#define CLAMP_VALUE(val, lb, ub)        ((val) < (lb)) ? (lb) : ((val) > (ub) ? (ub) : (val))
 
 using namespace DirectX;
 
+struct Light {
+    XMFLOAT3    strength;
+    float       falloff_start;
+    XMFLOAT3    direction;
+    float       falloff_end;
+    XMFLOAT3    position;
+    float       spot_power;
+};
+
+#define MAX_LIGHTS  16
+
 // -- per object constants
-struct ObjectConstantBuffer {
+struct ObjectConstants {
     XMFLOAT4X4 world;
     //XMFLOAT4   color; /* color change experiment*/
     float padding[48];  // Padding so the constant buffer is 256-byte aligned
 };
-static_assert(256 == sizeof(ObjectConstantBuffer), "Constant buffer size must be 256b aligned");
+static_assert(256 == sizeof(ObjectConstants), "Constant buffer size must be 256b aligned");
 // -- per pass constants
-struct PassConstantBuffer {
+struct PassConstants {
     XMFLOAT4X4 view;
     XMFLOAT4X4 inverse_view;
     XMFLOAT4X4 proj;
@@ -39,19 +50,69 @@ struct PassConstantBuffer {
     float farz;
     float total_time;
     float delta_time;
-    float padding[20];  // Padding so the constant buffer is 256-byte aligned
+
+    XMFLOAT4 ambient_light;
+
+    // Indices [0, NUM_DIR_LIGHTS) are directional lights;
+    // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
+    // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
+    // are spot lights for a maximum of MAX_LIGHTS per object.
+    Light lights [MAX_LIGHTS];
+    float padding[16];  // Padding so the constant buffer is 256-byte aligned
 };
-static_assert(512 == sizeof(PassConstantBuffer), "Constant buffer size must be 256b aligned");
+static_assert(1280 == sizeof(PassConstants), "Constant buffer size must be 256b aligned");
 
 struct Vertex {
-    XMFLOAT3 Pos;
-    XMFLOAT4 Color;
+    XMFLOAT3 position;
+    XMFLOAT3 normal;
 };
 struct GeomVertex {
     XMFLOAT3 Position;
     XMFLOAT3 Normal;
     XMFLOAT3 TangentU;
     XMFLOAT2 TexC;
+};
+
+
+
+// -- relevant material data in cbuffer
+struct MaterialConstants {
+    XMFLOAT4    diffuse_albedo;
+    XMFLOAT3    fresnel_r0;
+    float       roughness;
+
+    // used in texture mapping
+    XMFLOAT4X4  mat_transform;
+
+    float padding[40];  // Padding so the constant buffer is 256-byte aligned
+};
+static_assert(256 == sizeof(MaterialConstants), "Constant buffer size must be 256b aligned");
+
+// NOTE(omid): A production 3D engine would likely create a hierarchy of Materials.
+// -- simple struct to represent a material. 
+struct Material {
+    char name[50];
+
+    // Index into constant buffer corresponding to this material.
+    int mat_cbuffer_index;
+
+    // Index into SRV heap for diffuse texture.
+    int diffuse_srvheap_index;
+
+    // Index into SRV heap for normal texture.
+    int normal_srvheap_index;
+
+    // Dirty flag indicating the material has changed and we need to update the constant buffer.
+    // Because we have a material constant buffer for each FrameResource, we have to apply the
+    // update to each FrameResource.  Thus, when we modify a material we should set 
+    // n_frames_dirty = NUM_QUEUING_FRAMES so that each frame resource gets the update.
+    int n_frames_dirty;
+
+    // Material constant buffer data used for shading.
+    XMFLOAT4 diffuse_albedo;
+    XMFLOAT3 fresnel_r0;
+    float roughness;
+    XMFLOAT4X4 mat_transform;
 };
 
 // FrameResource stores the resources needed for the CPU to build the command lists for a frame.
@@ -63,11 +124,15 @@ struct FrameResource {
     // We cannot update a cbuffer until the GPU is done processing the commands
     // that reference it.  So each frame needs their own cbuffers.
     ID3D12Resource * pass_cb;
-    PassConstantBuffer pass_cb_data;
+    PassConstants pass_cb_data;
     uint8_t * pass_cb_data_ptr;
 
+    ID3D12Resource * mat_cb;
+    MaterialConstants mat_cb_data;
+    uint8_t * mat_cb_data_ptr;
+
     ID3D12Resource * obj_cb;
-    ObjectConstantBuffer obj_cb_data;
+    ObjectConstants obj_cb_data;
     uint8_t * obj_cb_data_ptr;
 
     // We cannot update a dynamic vertex buffer until the GPU is done processing
@@ -89,7 +154,7 @@ struct RenderItem {
     // Dirty flag indicating the object data has changed and we need to update the constant buffer.
     // Because we have an object cbuffer for each FrameResource, we have to apply the
     // update to each FrameResource.  Thus, when we modify obect data we should set 
-    // NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
+    // n_frames_dirty = NUM_QUEUING_FRAMES so that each frame resource gets the update.
     int n_frames_dirty;
 
     // Index into GPU constant buffer corresponding to the ObjectCB for this render item.
@@ -104,6 +169,7 @@ struct RenderItem {
     UINT start_index_loc;
     int base_vertex_loc;
 
+    Material * mat;
     MeshGeometry * geometry;
 };
 
@@ -334,6 +400,16 @@ create_default_buffer (
     // the command list has not been executed yet that performs the actual copy.
     // The caller can Release the upload_buffer after it knows the copy has been executed.
 
+}
+
+inline XMVECTOR
+spherical_to_cartesian (float radius, float theta, float phi) {
+    return XMVectorSet(
+        radius * sinf(phi) * cosf(theta),
+        radius * cosf(phi),
+        radius * sinf(phi) * sinf(theta),
+        1.0f
+    );
 }
 
 // NOTE(omid): shape generator helpers 
