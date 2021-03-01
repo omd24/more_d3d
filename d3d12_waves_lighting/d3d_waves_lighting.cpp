@@ -38,11 +38,15 @@
 
 #define MAX_RENDERITEM_COUNT    50
 #define OBJ_COUNT               2       /* water and land */
-#define NUM_MATERIALS           2       /* grass and water */
+#define MAT_COUNT           2       /* grass and water */
 
 enum RENDERITEM_INDEX {
-    _WATER_ID,
-    _GRID_ID,
+    RITEM_WATER_ID = 0,
+    RITEM_GRID_ID = 1,
+};
+enum MAT_INDEX {
+    MAT_GRASS_ID = 0,
+    MAT_WATER_ID = 1,
 };
 
 struct SceneContext {
@@ -90,7 +94,7 @@ struct D3DRenderContext {
     ID3D12DescriptorHeap *          rtv_heap;
     ID3D12DescriptorHeap *          dsv_heap;
 
-    PassConstants              main_pass_constants;
+    PassConstants                   main_pass_constants;
 
     // render items
     RenderItem                      render_items[2];    /* water and land */
@@ -115,7 +119,7 @@ struct D3DRenderContext {
 
     ID3D12Resource *                depth_stencil_buffer;
 
-    Material                        materials[NUM_MATERIALS];
+    Material                        materials[MAT_COUNT];
 
 };
 // NOTE(omid): Don't worry this is expermental!
@@ -148,18 +152,21 @@ calc_hill_normal (float x, float z) {
 }
 static void
 create_materials (Material out_materials []) {
-    strcpy_s(out_materials[0].name, "grass");
-    out_materials[0].mat_cbuffer_index = 0;
-    out_materials[0].diffuse_albedo = XMFLOAT4(0.2f, 0.6f, 0.2f, 1.0f);
-    out_materials[0].fresnel_r0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-    out_materials[0].roughness = 0.125f;
+    strcpy_s(out_materials[MAT_GRASS_ID].name, "grass");
+    out_materials[MAT_GRASS_ID].mat_cbuffer_index = 0;
+    out_materials[MAT_GRASS_ID].diffuse_albedo = XMFLOAT4(0.2f, 0.6f, 0.2f, 1.0f);
+    out_materials[MAT_GRASS_ID].fresnel_r0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+    out_materials[MAT_GRASS_ID].roughness = 0.125f;
+    out_materials[MAT_GRASS_ID].mat_transform = Identity4x4();
 
     // -- not a good water material (we don't have transparency and env reflection rn)
-    strcpy_s(out_materials[1].name, "water");
-    out_materials[1].mat_cbuffer_index = 1;
-    out_materials[1].diffuse_albedo = XMFLOAT4(0.0f, 0.2f, 0.6f, 1.0f);
-    out_materials[1].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-    out_materials[1].roughness = 0.0f;
+    strcpy_s(out_materials[MAT_WATER_ID].name, "water");
+    out_materials[MAT_WATER_ID].mat_cbuffer_index = 1;
+    out_materials[MAT_WATER_ID].diffuse_albedo = XMFLOAT4(0.0f, 0.2f, 0.6f, 1.0f);
+    out_materials[MAT_WATER_ID].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+    out_materials[MAT_WATER_ID].roughness = 0.0f;
+    out_materials[MAT_WATER_ID].mat_transform = Identity4x4();
+
 }
 static void
 create_land_geometry (D3DRenderContext * render_ctx, GeomVertex grid [], Vertex vertices [], uint16_t indices []) {
@@ -252,25 +259,27 @@ create_water_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16
 }
 static void
 create_render_items (RenderItem render_items [], MeshGeometry * water_geom, MeshGeometry * land_geom, Material * water_mat, Material * grass_mat) {
-    render_items[_WATER_ID].world = Identity4x4();
-    render_items[_WATER_ID].obj_cbuffer_index = 0;
-    render_items[_WATER_ID].mat = water_mat;
-    render_items[_WATER_ID].geometry = water_geom;
-    render_items[_WATER_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_WATER_ID].index_count = water_geom->submesh_geoms[0].index_count;
-    render_items[_WATER_ID].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
-    render_items[_WATER_ID].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
-    render_items[_WATER_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[RITEM_WATER_ID].world = Identity4x4();
+    render_items[RITEM_WATER_ID].obj_cbuffer_index = 0;
+    render_items[RITEM_WATER_ID].mat = water_mat;
+    render_items[RITEM_WATER_ID].geometry = water_geom;
+    render_items[RITEM_WATER_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[RITEM_WATER_ID].index_count = water_geom->submesh_geoms[0].index_count;
+    render_items[RITEM_WATER_ID].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
+    render_items[RITEM_WATER_ID].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
+    render_items[RITEM_WATER_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[RITEM_WATER_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
 
-    render_items[_GRID_ID].world = Identity4x4();
-    render_items[_GRID_ID].obj_cbuffer_index = 1;
-    render_items[_GRID_ID].mat = grass_mat;
-    render_items[_GRID_ID].geometry = land_geom;
-    render_items[_GRID_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_GRID_ID].index_count = land_geom->submesh_geoms[0].index_count;
-    render_items[_GRID_ID].start_index_loc = land_geom->submesh_geoms[0].start_index_location;
-    render_items[_GRID_ID].base_vertex_loc = land_geom->submesh_geoms[0].base_vertex_location;
-    render_items[_GRID_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[RITEM_GRID_ID].world = Identity4x4();
+    render_items[RITEM_GRID_ID].obj_cbuffer_index = 1;
+    render_items[RITEM_GRID_ID].mat = grass_mat;
+    render_items[RITEM_GRID_ID].geometry = land_geom;
+    render_items[RITEM_GRID_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[RITEM_GRID_ID].index_count = land_geom->submesh_geoms[0].index_count;
+    render_items[RITEM_GRID_ID].start_index_loc = land_geom->submesh_geoms[0].start_index_location;
+    render_items[RITEM_GRID_ID].base_vertex_loc = land_geom->submesh_geoms[0].base_vertex_location;
+    render_items[RITEM_GRID_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[RITEM_GRID_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
 
 }
 // -- indexed drawing
@@ -530,7 +539,7 @@ static void
 update_mat_cbuffers (D3DRenderContext * render_ctx) {
     UINT frame_index = render_ctx->frame_index;
     UINT cbuffer_size = sizeof(MaterialConstants);
-    for (int i = 0; i < NUM_MATERIALS; ++i) {
+    for (int i = 0; i < MAT_COUNT; ++i) {
         // Only update the cbuffer data if the constants have changed.  If the cbuffer
         // data changes, it needs to be updated for each FrameResource.
         Material * mat = &render_ctx->materials[i];
@@ -578,6 +587,7 @@ update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
     render_ctx->main_pass_constants.farz = 1000.0f;
     render_ctx->main_pass_constants.delta_time = timer->delta_time;
     render_ctx->main_pass_constants.total_time = Timer_GetTotalTime(timer);
+    render_ctx->main_pass_constants.ambient_light = {.25f, .25f, .35f, 1.0f};
 
     XMVECTOR light_dir = spherical_to_cartesian(1.0f, global_scene_ctx.sun_theta, global_scene_ctx.sun_phi);
     light_dir = -light_dir;
@@ -647,7 +657,7 @@ update_waves_vb (D3DRenderContext * render_ctx, GameTimer * timer) {
     // NOTE(omid): We did the upload_buffer mapping to data pointer (when creating the upload_buffer)
 
     // Set the dynamic VB of the wave renderitem to the current frame VB.
-    render_ctx->render_items[_WATER_ID].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
+    render_ctx->render_items[RITEM_WATER_ID].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
@@ -783,6 +793,35 @@ draw_main (D3DRenderContext * render_ctx) {
 
     return ret;
 }
+static void
+init_renderctx (D3DRenderContext * render_ctx) {
+    SIMPLE_ASSERT(render_ctx, "render-ctx not valid");
+
+    memset(render_ctx, 0, sizeof(D3DRenderContext));
+
+    render_ctx->viewport.TopLeftX = 0;
+    render_ctx->viewport.TopLeftY = 0;
+    render_ctx->viewport.Width = (float)global_scene_ctx.width;
+    render_ctx->viewport.Height = (float)global_scene_ctx.height;
+    render_ctx->viewport.MinDepth = 0.0f;
+    render_ctx->viewport.MaxDepth = 1.0f;
+    render_ctx->scissor_rect.left = 0;
+    render_ctx->scissor_rect.top = 0;
+    render_ctx->scissor_rect.right = global_scene_ctx.width;
+    render_ctx->scissor_rect.bottom = global_scene_ctx.height;
+
+    render_ctx->waves = (Waves *)::malloc(sizeof(Waves));
+    Waves_Init(render_ctx->waves, 128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
+
+    // -- initialize light data
+    render_ctx->main_pass_constants.lights[0].strength = {.5f,.5f,.5f};
+    render_ctx->main_pass_constants.lights[0].falloff_start = 1.0f;
+    render_ctx->main_pass_constants.lights[0].direction = {0.0f, -1.0f, 0.0f};
+    render_ctx->main_pass_constants.lights[0].falloff_end = 10.0f;
+    render_ctx->main_pass_constants.lights[0].position = {0.0f, 0.0f, 0.0f};
+    render_ctx->main_pass_constants.lights[0].spot_power = 64.0f;
+
+}
 static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     LRESULT ret = {};
@@ -867,21 +906,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(0.25f * XM_PI, global_scene_ctx.aspect_ratio, 1.0f, 1000.0f);
     XMStoreFloat4x4(&global_scene_ctx.proj, p);
 
-
     D3DRenderContext * render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
-    render_ctx->viewport.TopLeftX = 0;
-    render_ctx->viewport.TopLeftY = 0;
-    render_ctx->viewport.Width = (float)global_scene_ctx.width;
-    render_ctx->viewport.Height = (float)global_scene_ctx.height;
-    render_ctx->viewport.MinDepth = 0.0f;
-    render_ctx->viewport.MaxDepth = 1.0f;
-    render_ctx->scissor_rect.left = 0;
-    render_ctx->scissor_rect.top = 0;
-    render_ctx->scissor_rect.right = global_scene_ctx.width;
-    render_ctx->scissor_rect.bottom = global_scene_ctx.height;
-
-    render_ctx->waves = (Waves *)::malloc(sizeof(Waves));
-    Waves_Init(render_ctx->waves, 128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
+    init_renderctx(render_ctx);
 
     // Query Adapter (PhysicalDevice)
     IDXGIFactory * dxgi_factory = nullptr;
@@ -1023,6 +1049,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma region Create CBuffers and Dynamic Vertex Buffer (waves_vb)
     UINT obj_cb_size = sizeof(ObjectConstants);
+    UINT mat_cb_size = sizeof(MaterialConstants);
     UINT pass_cb_size = sizeof(PassConstants);
     UINT vertex_size = sizeof(Vertex);
     for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
@@ -1033,6 +1060,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         create_upload_buffer(render_ctx->device, (UINT64)obj_cb_size * OBJ_COUNT, &render_ctx->frame_resources[i].obj_cb_data_ptr, &render_ctx->frame_resources[i].obj_cb);
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].obj_cb_data_ptr, &render_ctx->frame_resources[i].obj_cb_data, sizeof(render_ctx->frame_resources[i].obj_cb_data));
+
+        create_upload_buffer(render_ctx->device, (UINT64)mat_cb_size * MAT_COUNT, &render_ctx->frame_resources[i].mat_cb_data_ptr, &render_ctx->frame_resources[i].mat_cb);
+        // Initialize cb data
+        ::memcpy(render_ctx->frame_resources[i].mat_cb_data_ptr, &render_ctx->frame_resources[i].mat_cb_data, sizeof(render_ctx->frame_resources[i].mat_cb_data));
 
         create_upload_buffer(render_ctx->device, pass_cb_size * 1, &render_ctx->frame_resources[i].pass_cb_data_ptr, &render_ctx->frame_resources[i].pass_cb);
         // Initialize cb data
@@ -1122,7 +1153,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     create_render_items(
         render_ctx->render_items,
         &render_ctx->water_geom, &render_ctx->land_geom,
-        &render_ctx->materials[1], &render_ctx->materials[0]
+        &render_ctx->materials[MAT_WATER_ID], &render_ctx->materials[MAT_GRASS_ID]
     );
 
 #pragma endregion Shapes and RenderItems Creation
@@ -1199,9 +1230,11 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // release queuing frame resources
     for (size_t i = 0; i < NUM_QUEUING_FRAMES; i++) {
         render_ctx->frame_resources[i].obj_cb->Unmap(0, nullptr);
+        render_ctx->frame_resources[i].mat_cb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].pass_cb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].waves_vb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].obj_cb->Release();
+        render_ctx->frame_resources[i].mat_cb->Release();
         render_ctx->frame_resources[i].pass_cb->Release();
         render_ctx->frame_resources[i].waves_vb->Release();
 

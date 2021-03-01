@@ -40,7 +40,7 @@ cbuffer PerPassConstantBuffer : register(b2) {
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
     // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
     // are spot lights for a maximum of MAX_LIGHTS per object.
-    Light global_lights [MAX_LIGHTS];
+    Light       global_lights [MAX_LIGHTS];
 }
 struct VertexShaderInput {
     float3 pos_local  : POSITION;
@@ -53,7 +53,7 @@ struct VertexShaderOutput {
 };
 VertexShaderOutput
 VertexShader_Main (VertexShaderInput vin) {
-    VertexShaderOutput res = (VertexShaderInput)0.0f;
+    VertexShaderOutput res = (VertexShaderOutput) 0.0f;
     
     // transform to world space
     float4 pos_world = mul(float4(vin.pos_local, 1.0f), global_world);

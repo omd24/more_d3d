@@ -50,7 +50,7 @@ blinn_phong (float3 light_strength, float3 light_vec, float3 normal, float3 to_e
 //  light equation for directional lights
 //
 float3
-compute_directional_light (Light l, Material mat, float3 normal, float3, to_eye) {
+compute_directional_light (Light l, Material mat, float3 normal, float3 to_eye) {
     float3 light_vec = -l.direction;
     
     // lambert cosine law
@@ -88,7 +88,7 @@ compute_point_light (Light l, Material mat, float3 pos, float3 normal, float3 to
 //  light equation for spot lights
 //
 float3
-compute_spot_light (Light l, Material mat, float3 pos, float3 normal, flaot3 to_eye) {
+compute_spot_light (Light l, Material mat, float3 pos, float3 normal, float3 to_eye) {
     float3 light_vec = l.position - pos;
     
     float d = length(light_vec);
@@ -118,21 +118,21 @@ compute_spot_light (Light l, Material mat, float3 pos, float3 normal, flaot3 to_
 //
 float4
 compute_lighting (Light g_light[MAX_LIGHTS], Material mat, float3 pos, float3 normal, float3 to_eye, float3 shadow_factor) {
-    flaot3 res = 0.0f;
+    float3 res = 0.0f;
     int i = 0;
     
 #if (NUM_DIR_LIGHTS > 0)
-    for (i = 0, i < NUM_DIR_LIGHTS; ++i) {
+    for (i = 0; i < NUM_DIR_LIGHTS; ++i) {
         res += shadow_factor[i] * compute_directional_light(g_light[i], mat, normal, to_eye);
     }
 #endif
 #if (NUM_POINT_LIGHTS > 0)
-    for (i = NUM_DIR_LIGHTS, i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS; ++i) {
+    for (i = NUM_DIR_LIGHTS; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS; ++i) {
         res += compute_point_light(g_light[i], mat, pos, normal, to_eye);
     }
 #endif
 #if (NUM_SPOT_LIGHTS > 0)
-    for (i = NUM_DIR_LIGHTS + NUM_POINT_LIGHTS, i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i) {
+    for (i = NUM_DIR_LIGHTS + NUM_POINT_LIGHTS; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i) {
         res += compute_spot_light(g_light[i], mat, pos, normal, to_eye);
     }
 #endif
