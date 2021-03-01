@@ -85,6 +85,18 @@ Waves_Update (Waves * wave, float dt, XMFLOAT3 temp []) {
         // Accumulate time.
     t += dt;
 
+    /*
+    void 
+    on_colsiotn (int xx, int yy, collider c) {
+        
+        if (c.name == "wall") {
+            gameobject.velocity = 0;
+        }        
+    
+    }
+
+    */
+
     // Only update the simulation at the specified time step.
     if (t >= wave->time_step) {
         // Only update interior points; we use zero boundary conditions.

@@ -753,7 +753,13 @@ draw_main (D3DRenderContext * render_ctx) {
 
     // Bind per-pass constant buffer.  We only need to do this once per-pass.
     ID3D12Resource * pass_cb = render_ctx->frame_resources[frame_index].pass_cb;
-    render_ctx->direct_cmd_list->SetGraphicsRootConstantBufferView(1, pass_cb->GetGPUVirtualAddress());
+    render_ctx->direct_cmd_list->SetGraphicsRootConstantBufferView(2, pass_cb->GetGPUVirtualAddress());
+
+    /*
+        0: per_obj_cbuffer
+        1: material_cbuffer
+        2: per_pass_cbuffer
+    */
 
     draw_render_items(
         render_ctx->direct_cmd_list,
@@ -1056,7 +1062,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxc_compiler));
     // if (FAILED(hr)) Handle error
 
-    wchar_t const * shaders_path = L"./shaders/color.hlsl";
+    wchar_t const * shaders_path = L"./shaders/default.hlsl";
     uint32_t code_page = CP_UTF8;
     IDxcBlobEncoding * shader_blob = nullptr;
     IDxcOperationResult * dxc_res = nullptr;
@@ -1064,10 +1070,12 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     IDxcBlob * pixel_shader_code = nullptr;
     hr = dxc_lib->CreateBlobFromFile(shaders_path, &code_page, &shader_blob);
     if (shader_blob) {
-        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"VertexShader_Main", L"vs_6_0", nullptr, 0, nullptr, 0, nullptr, &dxc_res);
+        IDxcIncludeHandler * include_handler = nullptr;
+        dxc_lib->CreateIncludeHandler(&include_handler);
+        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"VertexShader_Main", L"vs_6_0", nullptr, 0, nullptr, 0, include_handler, &dxc_res);
         dxc_res->GetStatus(&hr);
         dxc_res->GetResult(&vertex_shader_code);
-        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"PixelShader_Main", L"ps_6_0", nullptr, 0, nullptr, 0, nullptr, &dxc_res);
+        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"PixelShader_Main", L"ps_6_0", nullptr, 0, nullptr, 0, include_handler, &dxc_res);
         dxc_res->GetStatus(&hr);
         dxc_res->GetResult(&pixel_shader_code);
 
@@ -1173,7 +1181,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_obj_cbuffers(render_ctx);
         update_waves_vb(render_ctx, &global_timer);
 
-        // OnRender() aka rendering
+        // OnRender()
         CHECK_AND_FAIL(draw_main(render_ctx));
 
         CHECK_AND_FAIL(move_to_next_frame(render_ctx, &render_ctx->frame_index, &render_ctx->backbuffer_index));

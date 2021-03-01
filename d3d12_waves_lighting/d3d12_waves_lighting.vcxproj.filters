@@ -20,11 +20,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="shaders\color.hlsl">
-      <Filter>Resource Files</Filter>
-    </FxCompile>
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="headers\common.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -43,5 +38,13 @@
     <ClInclude Include="waves.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="shaders\default.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="shaders\light_utils.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
