@@ -28,8 +28,6 @@
 #include "./headers/utils.h"
 #include "./headers/game_timer.h"
 
-#include "waves.h"
-
 //#include <time.h> /* for srand */
 
 // TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)
@@ -37,16 +35,21 @@
 #define NUM_QUEUING_FRAMES      3
 
 #define MAX_RENDERITEM_COUNT    50
-#define OBJ_COUNT               2       /* water and land */
-#define MAT_COUNT           2       /* grass and water */
+#define OBJ_COUNT               22
+#define MAT_COUNT               4       /* brick, stone, tile, skull */
 
-enum RENDERITEM_INDEX {
-    RITEM_WATER_ID = 0,
-    RITEM_GRID_ID = 1,
+enum SUBMESH_INDEX {
+    _BOX_ID,
+    _GRID_ID,
+    _SPHERE_ID,
+    _CYLINDER_ID
 };
+
 enum MAT_INDEX {
-    MAT_GRASS_ID = 0,
-    MAT_WATER_ID = 1,
+    MAT_BRICK_ID = 0,
+    MAT_STONE_ID = 1,
+    MAT_TILE_ID = 2,
+    MAT_SKULL_ID = 3
 };
 
 struct SceneContext {
@@ -97,15 +100,12 @@ struct D3DRenderContext {
     PassConstants                   main_pass_constants;
 
     // render items
-    RenderItem                      render_items[2];    /* water and land */
+    RenderItem                      render_items[MAX_RENDERITEM_COUNT];
     UINT                            pass_cbv_offset;
-
-    Waves *                         waves;
 
     // TODO(omid): heap-alloc the mesh_geom(s)
     // TODO(omid): store geom(s) in an array
-    MeshGeometry                    land_geom;
-    MeshGeometry                    water_geom;
+    MeshGeometry                    geom;
 
     // Synchronization stuff
     UINT                            frame_index;
@@ -123,164 +123,280 @@ struct D3DRenderContext {
 
 };
 // NOTE(omid): Don't worry this is expermental!
-#define _WAVE_VTX_CNT   16384
-#define _WAVE_IDX_CNT   96774
+#define _BOX_VTX_CNT   24
+#define _BOX_IDX_CNT   36
 
-#define _GRID_VTX_CNT   2500
-#define _GRID_IDX_CNT   14406
+#define _GRID_VTX_CNT   2400
+#define _GRID_IDX_CNT   13806
 
-#define _TOTAL_VTX_CNT  (_WAVE_VTX_CNT + _GRID_VTX_CNT)
-#define _TOTAL_IDX_CNT  (_WAVE_IDX_CNT + _GRID_IDX_CNT)
+#define _SPHERE_VTX_CNT   401
+#define _SPHERE_IDX_CNT   2280
 
-static float
-calc_hill_height (float x, float z) {
-    return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
-}
-static XMFLOAT3
-calc_hill_normal (float x, float z) {
-    // n = (-df/dx, 1, -df/dz)
-    XMFLOAT3 n(
-        -0.03f * z * cosf(0.1f * x) - 0.3f * cosf(0.1f * z),
-        1.0f,
-        -0.3f * sinf(0.1f * x) + 0.03f * x * sinf(0.1f * z)
-    );
+#define _CYLINDER_VTX_CNT   485
+#define _CYLINDER_IDX_CNT   2520
 
-    XMVECTOR unit_normal = XMVector3Normalize(XMLoadFloat3(&n));
-    XMStoreFloat3(&n, unit_normal);
+#define _TOTAL_VTX_CNT  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT)
+#define _TOTAL_IDX_CNT  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT)
 
-    return n;
-}
 static void
 create_materials (Material out_materials []) {
-    strcpy_s(out_materials[MAT_GRASS_ID].name, "grass");
-    out_materials[MAT_GRASS_ID].mat_cbuffer_index = 0;
-    out_materials[MAT_GRASS_ID].diffuse_albedo = XMFLOAT4(0.2f, 0.6f, 0.2f, 1.0f);
-    out_materials[MAT_GRASS_ID].fresnel_r0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-    out_materials[MAT_GRASS_ID].roughness = 0.125f;
-    out_materials[MAT_GRASS_ID].mat_transform = Identity4x4();
+    strcpy_s(out_materials[MAT_BRICK_ID].name, "brick");
+    out_materials[MAT_BRICK_ID].mat_cbuffer_index = 0;
+    out_materials[MAT_BRICK_ID].diffuse_albedo = XMFLOAT4(Colors::ForestGreen);
+    out_materials[MAT_BRICK_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+    out_materials[MAT_BRICK_ID].roughness = 0.1f;
+    out_materials[MAT_BRICK_ID].mat_transform = Identity4x4();
 
-    // -- not a good water material (we don't have transparency and env reflection rn)
-    strcpy_s(out_materials[MAT_WATER_ID].name, "water");
-    out_materials[MAT_WATER_ID].mat_cbuffer_index = 1;
-    out_materials[MAT_WATER_ID].diffuse_albedo = XMFLOAT4(0.0f, 0.2f, 0.6f, 1.0f);
-    out_materials[MAT_WATER_ID].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-    out_materials[MAT_WATER_ID].roughness = 0.0f;
-    out_materials[MAT_WATER_ID].mat_transform = Identity4x4();
 
+    strcpy_s(out_materials[MAT_STONE_ID].name, "stone");
+    out_materials[MAT_STONE_ID].mat_cbuffer_index = 1;
+    out_materials[MAT_STONE_ID].diffuse_albedo = XMFLOAT4(Colors::LightSteelBlue);
+    out_materials[MAT_STONE_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_STONE_ID].roughness = 0.3f;
+    out_materials[MAT_STONE_ID].mat_transform = Identity4x4();
+
+    strcpy_s(out_materials[MAT_TILE_ID].name, "tile");
+    out_materials[MAT_TILE_ID].mat_cbuffer_index = 2;
+    out_materials[MAT_TILE_ID].diffuse_albedo = XMFLOAT4(Colors::LightGray);
+    out_materials[MAT_TILE_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+    out_materials[MAT_TILE_ID].roughness = 0.2f;
+    out_materials[MAT_TILE_ID].mat_transform = Identity4x4();
+
+
+    strcpy_s(out_materials[MAT_SKULL_ID].name, "skull");
+    out_materials[MAT_SKULL_ID].mat_cbuffer_index = 3;
+    out_materials[MAT_SKULL_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_SKULL_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_SKULL_ID].roughness = 0.3f;
+    out_materials[MAT_SKULL_ID].mat_transform = Identity4x4();
 }
 static void
-create_land_geometry (D3DRenderContext * render_ctx, GeomVertex grid [], Vertex vertices [], uint16_t indices []) {
+create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
 
-    create_grid(160.0f, 160.0f, 50, 50, grid, indices);
+    // box
+    UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
+    UINT bsz_id = bsz + sizeof(uint16_t) * _BOX_IDX_CNT;
+    // grid
+    UINT gsz = bsz_id + sizeof(GeomVertex) * _GRID_VTX_CNT;
+    UINT gsz_id = gsz + sizeof(uint16_t) * _GRID_IDX_CNT;
+    // sphere
+    UINT ssz = gsz_id + sizeof(GeomVertex) * _SPHERE_VTX_CNT;
+    UINT ssz_id = ssz + sizeof(uint16_t) * _SPHERE_IDX_CNT;
+    // cylinder
+    UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
+    //UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT; // not used
 
-    // Extract the vertex elements we are interested and apply the height function to
-    // each vertex.  In addition, color the vertices based on their height so we have
-    // sandy looking beaches, grassy low hills, and snow mountain peaks.
+    GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(memory);
+    uint16_t *      box_indices = reinterpret_cast<uint16_t *>(memory + bsz);
+    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(memory + bsz_id);
+    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(memory + gsz);
+    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(memory + gsz_id);
+    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(memory + ssz);
+    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(memory + ssz_id);
+    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(memory + csz);
 
-    for (unsigned i = 0; i < _GRID_VTX_CNT; ++i) {
-        auto & p = grid[i].Position;
-        vertices[i].position = p;
-        vertices[i].position.y = calc_hill_height(p.x, p.z);
-        vertices[i].normal = calc_hill_normal(p.x, p.z);
+    create_box(1.5f, 0.5f, 1.5f, box_vertices, box_indices);
+    create_grid(20.0f, 30.0f, 60, 40, grid_vertices, grid_indices);
+    create_sphere(0.5f, sphere_vertices, sphere_indices);
+    create_cylinder(0.5f, 0.3f, 3.0f, cylinder_vertices, cylinder_indices);
+
+    // We are concatenating all the geometry into one big vertex/index buffer.  So
+    // define the regions in the buffer each submesh covers.
+
+    // Cache the vertex offsets to each object in the concatenated vertex buffer.
+    UINT box_vertex_offset = 0;
+    UINT grid_vertex_offset = _BOX_VTX_CNT;
+    UINT sphere_vertex_offset = grid_vertex_offset + _GRID_VTX_CNT;
+    UINT cylinder_vertex_offset = sphere_vertex_offset + _SPHERE_VTX_CNT;
+
+    // Cache the starting index for each object in the concatenated index buffer.
+    UINT box_index_offset = 0;
+    UINT grid_index_offset = _BOX_IDX_CNT;
+    UINT sphere_index_offset = grid_index_offset + _GRID_IDX_CNT;
+    UINT cylinder_index_offsett = sphere_index_offset + _SPHERE_IDX_CNT;
+
+    // Define the SubmeshGeometry that cover different 
+    // regions of the vertex/index buffers.
+
+    SubmeshGeometry box_submesh = {};
+    box_submesh.index_count = _BOX_IDX_CNT;
+    box_submesh.start_index_location = box_index_offset;
+    box_submesh.base_vertex_location = box_vertex_offset;
+
+    SubmeshGeometry grid_submesh = {};
+    grid_submesh.index_count = _GRID_IDX_CNT;
+    grid_submesh.start_index_location = grid_index_offset;
+    grid_submesh.base_vertex_location = grid_vertex_offset;
+
+    SubmeshGeometry sphere_submesh = {};
+    sphere_submesh.index_count = _SPHERE_IDX_CNT;
+    sphere_submesh.start_index_location = sphere_index_offset;
+    sphere_submesh.base_vertex_location = sphere_vertex_offset;
+
+    SubmeshGeometry cylinder_submesh = {};
+    cylinder_submesh.index_count = _CYLINDER_IDX_CNT;
+    cylinder_submesh.start_index_location = cylinder_index_offsett;
+    cylinder_submesh.base_vertex_location = cylinder_vertex_offset;
+
+    // Extract the vertex elements we are interested in and pack the
+    // vertices of all the meshes into one vertex buffer.
+
+    UINT k = 0;
+    for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
+        vertices[k].position = box_vertices[i].Position;
+        vertices[k].normal = box_vertices[i].Normal;
     }
 
-    UINT vb_byte_size = _GRID_VTX_CNT * sizeof(Vertex);
-    UINT ib_byte_size = _GRID_IDX_CNT * sizeof(uint16_t);
+    for (size_t i = 0; i < _GRID_VTX_CNT; ++i, ++k) {
+        vertices[k].position = grid_vertices[i].Position;
+        vertices[k].normal = grid_vertices[i].Normal;
+    }
+
+    for (size_t i = 0; i < _SPHERE_VTX_CNT; ++i, ++k) {
+        vertices[k].position = sphere_vertices[i].Position;
+        vertices[k].normal = sphere_vertices[i].Normal;
+    }
+
+    for (size_t i = 0; i < _CYLINDER_VTX_CNT; ++i, ++k) {
+        vertices[k].position = cylinder_vertices[i].Position;
+        vertices[k].normal = cylinder_vertices[i].Normal;
+    }
+
+    // -- pack indices
+    k = 0;
+    for (size_t i = 0; i < _BOX_IDX_CNT; ++i, ++k) {
+        indices[k] = box_indices[i];
+    }
+
+    for (size_t i = 0; i < _GRID_IDX_CNT; ++i, ++k) {
+        indices[k] = grid_indices[i];
+    }
+
+    for (size_t i = 0; i < _SPHERE_IDX_CNT; ++i, ++k) {
+        indices[k] = sphere_indices[i];
+    }
+
+    for (size_t i = 0; i < _CYLINDER_IDX_CNT; ++i, ++k) {
+        indices[k] = cylinder_indices[i];
+    }
+
+    UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
+    UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
 
     // -- Fill out render_ctx geom (output)
 
-    CHECK_AND_FAIL(D3DCreateBlob(vb_byte_size, &render_ctx->land_geom.vb_cpu));
-    CopyMemory(render_ctx->land_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+    D3DCreateBlob(vb_byte_size, &render_ctx->geom.vb_cpu);
+    CopyMemory(render_ctx->geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
 
-    D3DCreateBlob(ib_byte_size, &render_ctx->land_geom.ib_cpu);
-    CopyMemory(render_ctx->land_geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
+    D3DCreateBlob(ib_byte_size, &render_ctx->geom.ib_cpu);
+    CopyMemory(render_ctx->geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
 
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->land_geom.vb_uploader, &render_ctx->land_geom.vb_gpu);
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->land_geom.ib_uploader, &render_ctx->land_geom.ib_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom.vb_uploader, &render_ctx->geom.vb_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom.ib_uploader, &render_ctx->geom.ib_gpu);
 
-    render_ctx->land_geom.vb_byte_stide = sizeof(Vertex);
-    render_ctx->land_geom.vb_byte_size = vb_byte_size;
-    render_ctx->land_geom.ib_byte_size = ib_byte_size;
+    render_ctx->geom.vb_byte_stide = sizeof(Vertex);
+    render_ctx->geom.vb_byte_size = vb_byte_size;
+    render_ctx->geom.ib_byte_size = ib_byte_size;
 
-    SubmeshGeometry submesh;
-    submesh.index_count = _GRID_IDX_CNT;
-    submesh.start_index_location = 0;
-    submesh.base_vertex_location = 0;
-
-    render_ctx->land_geom.submesh_names[0] = "grid";
-    render_ctx->land_geom.submesh_geoms[0] = submesh;
+    render_ctx->geom.submesh_names[_BOX_ID] = "box";
+    render_ctx->geom.submesh_geoms[_BOX_ID] = box_submesh;
+    render_ctx->geom.submesh_names[_GRID_ID] = "grid";
+    render_ctx->geom.submesh_geoms[_GRID_ID] = grid_submesh;
+    render_ctx->geom.submesh_names[_SPHERE_ID] = "shpere";
+    render_ctx->geom.submesh_geoms[_SPHERE_ID] = sphere_submesh;
+    render_ctx->geom.submesh_names[_CYLINDER_ID] = "cylinder";
+    render_ctx->geom.submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
 }
 static void
-create_water_geometry (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
+create_render_items (RenderItem render_items [], MeshGeometry * geom, Material materials []) {
+    // NOTE(omid): RenderItems elements 
+    /*
+        0: box
+        1: grid
+        2-22: cylinders and spheres
+    */
 
-    // Iterate over each quad.
-    int m = render_ctx->waves->nrow;
-    int n = render_ctx->waves->ncol;
-    int k = 0;
-    for (int i = 0; i < m - 1; ++i) {
-        for (int j = 0; j < n - 1; ++j) {
-            indices[k] = i * n + j;
-            indices[k + 1] = i * n + j + 1;
-            indices[k + 2] = (i + 1) * n + j;
+    UINT _curr = 0;
 
-            indices[k + 3] = (i + 1) * n + j;
-            indices[k + 4] = i * n + j + 1;
-            indices[k + 5] = (i + 1) * n + j + 1;
+    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    render_items[_curr].obj_cbuffer_index = _curr;
+    render_items[_curr].geometry = geom;
+    render_items[_curr].mat = &materials[MAT_STONE_ID];
+    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_curr].index_count = geom->submesh_geoms[_BOX_ID].index_count;
+    render_items[_curr].start_index_loc = geom->submesh_geoms[_BOX_ID].start_index_location;
+    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_BOX_ID].base_vertex_location;
+    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    ++_curr;
 
-            k += 6; // next quad
-        }
+    render_items[_curr].world = Identity4x4();
+    render_items[_curr].obj_cbuffer_index = _curr;
+    render_items[_curr].geometry = geom;
+    render_items[_curr].mat = &materials[MAT_TILE_ID];
+    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_curr].index_count = geom->submesh_geoms[_GRID_ID].index_count;
+    render_items[_curr].start_index_loc = geom->submesh_geoms[_GRID_ID].start_index_location;
+    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_GRID_ID].base_vertex_location;
+    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    ++_curr;
+
+    for (int i = 0; i < 5; ++i) {
+        XMMATRIX left_cylinder_world = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i * 5.0f);
+        XMMATRIX right_cylinder_world = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i * 5.0f);
+
+        XMMATRIX left_sphere_world = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
+        XMMATRIX right_sphere_world = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
+
+        XMStoreFloat4x4(&render_items[_curr].world, right_cylinder_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].mat = &materials[MAT_BRICK_ID];
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
+        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+        ++_curr;
+
+        XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].mat = &materials[MAT_BRICK_ID];
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
+        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+        ++_curr;
+
+        XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].mat = &materials[MAT_STONE_ID];
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
+        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+        ++_curr;
+
+        XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
+        render_items[_curr].obj_cbuffer_index = _curr;
+        render_items[_curr].geometry = geom;
+        render_items[_curr].mat = &materials[MAT_STONE_ID];
+        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
+        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
+        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+        ++_curr;
     }
-
-    UINT vb_byte_size = render_ctx->waves->nvtx * sizeof(Vertex);
-    UINT ib_byte_size = _WAVE_IDX_CNT * sizeof(uint16_t);
-
-    // -- Fill out render_ctx geom (output)
-
-    //D3DCreateBlob(vb_byte_size, &render_ctx->water_geom.vb_cpu);
-    //CopyMemory(render_ctx->water_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
-
-    CHECK_AND_FAIL(D3DCreateBlob(ib_byte_size, &render_ctx->water_geom.ib_cpu));
-    CopyMemory(render_ctx->water_geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
-
-    //create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->water_geom.vb_uploader, &render_ctx->water_geom.vb_gpu);
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->water_geom.ib_uploader, &render_ctx->water_geom.ib_gpu);
-
-    render_ctx->water_geom.vb_byte_stide = sizeof(Vertex);
-    render_ctx->water_geom.vb_byte_size = vb_byte_size;
-    render_ctx->water_geom.ib_byte_size = ib_byte_size;
-
-    SubmeshGeometry submesh;
-    submesh.index_count = _WAVE_IDX_CNT;
-    submesh.start_index_location = 0;
-    submesh.base_vertex_location = 0;
-
-    render_ctx->water_geom.submesh_names[0] = "water";
-    render_ctx->water_geom.submesh_geoms[0] = submesh;
-}
-static void
-create_render_items (RenderItem render_items [], MeshGeometry * water_geom, MeshGeometry * land_geom, Material * water_mat, Material * grass_mat) {
-    render_items[RITEM_WATER_ID].world = Identity4x4();
-    render_items[RITEM_WATER_ID].obj_cbuffer_index = 0;
-    render_items[RITEM_WATER_ID].mat = water_mat;
-    render_items[RITEM_WATER_ID].geometry = water_geom;
-    render_items[RITEM_WATER_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[RITEM_WATER_ID].index_count = water_geom->submesh_geoms[0].index_count;
-    render_items[RITEM_WATER_ID].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
-    render_items[RITEM_WATER_ID].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
-    render_items[RITEM_WATER_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[RITEM_WATER_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-
-    render_items[RITEM_GRID_ID].world = Identity4x4();
-    render_items[RITEM_GRID_ID].obj_cbuffer_index = 1;
-    render_items[RITEM_GRID_ID].mat = grass_mat;
-    render_items[RITEM_GRID_ID].geometry = land_geom;
-    render_items[RITEM_GRID_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[RITEM_GRID_ID].index_count = land_geom->submesh_geoms[0].index_count;
-    render_items[RITEM_GRID_ID].start_index_loc = land_geom->submesh_geoms[0].start_index_location;
-    render_items[RITEM_GRID_ID].base_vertex_loc = land_geom->submesh_geoms[0].base_vertex_location;
-    render_items[RITEM_GRID_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[RITEM_GRID_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-
 }
 // -- indexed drawing
 static void
@@ -294,14 +410,9 @@ draw_render_items (
 ) {
     UINT objcb_byte_size = (UINT64)sizeof(ObjectConstants);
     UINT matcb_byte_size = (UINT64)sizeof(MaterialConstants);
-
-    // For each render item...
     for (size_t i = 0; i < OBJ_COUNT; ++i) {
-        RenderItem * ri = &render_items[i];
-
         D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
         D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
-
         cmd_list->IASetVertexBuffers(0, 1, &vbv);
         cmd_list->IASetIndexBuffer(&ibv);
         cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
@@ -319,8 +430,25 @@ draw_render_items (
     }
 }
 static void
-create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
+create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
+    // Create Render Target View Descriptor Heap
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+    rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap));
+
+    // Create Depth Stencil View Descriptor Heap
+    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc;
+    dsv_heap_desc.NumDescriptors = 1;
+    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    dsv_heap_desc.NodeMask = 0;
+    render_ctx->device->CreateDescriptorHeap(&dsv_heap_desc, IID_PPV_ARGS(&render_ctx->dsv_heap));
+}
+static void
+create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
     // Root parameters here are root cbv (as opposed to table).
     D3D12_ROOT_PARAMETER slot_root_params[3] = {};
     // Create root CBVs.
@@ -435,25 +563,6 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     CHECK_AND_FAIL(render_ctx->device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx->pso)));
 }
 static void
-create_rtv_dsv_descriptor_heap (D3DRenderContext * render_ctx) {
-
-    // Create Render Target View Descriptor Heap
-    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
-    rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
-    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    CHECK_AND_FAIL(render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap)));
-
-
-    // Create Depth Stencil View Descriptor Heap
-    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc;
-    dsv_heap_desc.NumDescriptors = 1;
-    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    dsv_heap_desc.NodeMask = 0;
-    render_ctx->device->CreateDescriptorHeap(&dsv_heap_desc, IID_PPV_ARGS(&render_ctx->dsv_heap));
-}
-static void
 handle_keyboard_input (SceneContext * scene_ctx, GameTimer * gt) {
     float dt = gt->delta_time;
 
@@ -487,8 +596,8 @@ handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
     } else if ((wParam & MK_RBUTTON) != 0) {
         // make each pixel correspond to a 0.2 unit in scene
-        float dx = 0.2f * (float)(x - scene_ctx->mouse.x);
-        float dy = 0.2f * (float)(y - scene_ctx->mouse.y);
+        float dx = 0.05f * (float)(x - scene_ctx->mouse.x);
+        float dy = 0.05f * (float)(y - scene_ctx->mouse.y);
 
         // update camera radius
         scene_ctx->radius += dx - dy;
@@ -592,77 +701,10 @@ update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
     XMVECTOR light_dir = spherical_to_cartesian(1.0f, global_scene_ctx.sun_theta, global_scene_ctx.sun_phi);
     light_dir = -light_dir;
     XMStoreFloat3(&render_ctx->main_pass_constants.lights[0].direction, light_dir);
-    render_ctx->main_pass_constants.lights[0].strength = {1.0f, 1.0f, 0.9f};
-#if 0
-    float total_time = Timer_GetTotalTime(timer);
-    float red_stength = sinf(total_time);
-    render_ctx->main_pass_constants.lights[0].strength = {red_stength, 0.0f, 0.0f};
-#endif // 0
+    render_ctx->main_pass_constants.lights[0].strength = {0.6f, 0.6f, 0.6f};
 
     uint8_t * pass_ptr = render_ctx->frame_resources[render_ctx->frame_index].pass_cb_data_ptr;
     memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstants));
-}
-static int
-rand_int (int a, int b) {
-    return a + rand() % ((b - a) + 1);
-}
-// Returns random float in [0, 1).
-static float
-rand_float () {
-    return (float)(rand()) / (float)RAND_MAX;
-}
-// Returns random float in [a, b).
-static float
-rand_float (float a, float b) {
-    return a + rand_float() * (b - a);
-}
-static void
-update_waves_vb (D3DRenderContext * render_ctx, GameTimer * timer) {
-    float total_time = Timer_GetTotalTime(timer);
-    float delta_time = timer->delta_time;
-
-    // Every quarter second, generate a random wave.
-    static float t_base = 0.0f;
-    if ((total_time - t_base) >= 0.25f) {
-        t_base += 0.25f;
-
-        int i = rand_int(4, render_ctx->waves->nrow - 5);
-        int j = rand_int(4, render_ctx->waves->ncol - 5);
-
-        float r = rand_float(0.2f, 0.5f);
-
-        Waves_Disturb(render_ctx->waves, i, j, r);
-    }
-
-    // Update the wave simulation.
-    XMFLOAT3 * temp = (XMFLOAT3 *)::malloc(sizeof(XMFLOAT3) * WAVE_VTX_CNT);
-    Waves_Update(render_ctx->waves, delta_time, temp);
-    ::free(temp);
-
-    // Update the wave vertex buffer with the new solution.
-    UINT frame_index = render_ctx->frame_index;
-    uint8_t * wave_ptr = render_ctx->frame_resources[frame_index].waves_vb_data_ptr;
-
-    //D3D12_RANGE mem_range = {};
-    //mem_range.Begin = 0;
-    //mem_range.End = 0;
-    //CHECK_AND_FAIL(
-    //    render_ctx->frame_resources[frame_index].waves_vb->Map(0, &mem_range, reinterpret_cast<void**>(&wave_ptr))
-    //);
-
-    UINT v_size = (UINT64)sizeof(Vertex);
-    for (int i = 0; i < WAVE_VTX_CNT; ++i) {
-        Vertex v;
-
-        v.position = Waves_GetPosition(render_ctx->waves, i);
-        v.normal = render_ctx->waves->normal[i];
-
-        ::memcpy(wave_ptr + (UINT64)i * v_size, &v, v_size);
-    }
-    // NOTE(omid): We did the upload_buffer mapping to data pointer (when creating the upload_buffer)
-
-    // Set the dynamic VB of the wave renderitem to the current frame VB.
-    render_ctx->render_items[RITEM_WATER_ID].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
@@ -815,9 +857,6 @@ init_renderctx (D3DRenderContext * render_ctx) {
     render_ctx->scissor_rect.right = global_scene_ctx.width;
     render_ctx->scissor_rect.bottom = global_scene_ctx.height;
 
-    render_ctx->waves = (Waves *)::malloc(sizeof(Waves));
-    Waves_Init(render_ctx->waves, 128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
-
     // -- initialize light data
     render_ctx->main_pass_constants.lights[0].strength = {.5f,.5f,.5f};
     render_ctx->main_pass_constants.lights[0].falloff_start = 1.0f;
@@ -902,7 +941,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     global_scene_ctx = {.width = 1280, .height = 720};
     global_scene_ctx.theta = 1.5f * XM_PI;
     global_scene_ctx.phi = XM_PIDIV2 - 0.1f;
-    global_scene_ctx.radius = 50.0f;
+    global_scene_ctx.radius = 15.0f;
     global_scene_ctx.sun_theta = 1.25f * XM_PI;
     global_scene_ctx.sun_phi = XM_PIDIV4;
     global_scene_ctx.aspect_ratio = (float)global_scene_ctx.width / (float)global_scene_ctx.height;
@@ -918,7 +957,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     IDXGIFactory * dxgi_factory = nullptr;
     CHECK_AND_FAIL(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgi_factory)));
 
-    constexpr uint32_t MaxAdapters = 8;
+    uint32_t const MaxAdapters = 8;
     IDXGIAdapter * adapters[MaxAdapters] = {};
     IDXGIAdapter * pAdapter;
     for (UINT i = 0; dxgi_factory->EnumAdapters(i, &pAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
@@ -980,7 +1019,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     // ========================================================================================================
 
-    create_rtv_dsv_descriptor_heap(render_ctx);
+    create_descriptor_heaps(render_ctx);
 
 #pragma region Create DSV
 // Create the depth/stencil buffer and view.
@@ -1052,11 +1091,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     }
 #pragma endregion Create RTV
 
-#pragma region Create CBuffers and Dynamic Vertex Buffer (waves_vb)
+#pragma region Create CBuffers    UINT obj_cb_size = sizeof(ObjectConstants);
     UINT obj_cb_size = sizeof(ObjectConstants);
     UINT mat_cb_size = sizeof(MaterialConstants);
     UINT pass_cb_size = sizeof(PassConstants);
-    UINT vertex_size = sizeof(Vertex);
     for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
         // -- create a cmd-allocator for each frame
         res = render_ctx->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx->frame_resources[i].cmd_list_alloc));
@@ -1074,12 +1112,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].pass_cb_data_ptr, &render_ctx->frame_resources[i].pass_cb_data, sizeof(render_ctx->frame_resources[i].pass_cb_data));
 
-        create_upload_buffer(render_ctx->device, (UINT64)vertex_size * _WAVE_VTX_CNT, &render_ctx->frame_resources[i].waves_vb_data_ptr, &render_ctx->frame_resources[i].waves_vb);
-        // Initialize cb data
-        ::memcpy(render_ctx->frame_resources[i].waves_vb_data_ptr, &render_ctx->frame_resources[i].waves_vb_data, sizeof(render_ctx->frame_resources[i].waves_vb_data));
     }
-    CHECK_AND_FAIL(res);
-#pragma endregion Create CBuffers and Dynamic Vertex Buffer (waves_vb)
+#pragma endregion Create CBuffers
 
     // ========================================================================================================
 #pragma region Root Signature
@@ -1144,21 +1178,16 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma region Shapes and RenderItems Creation
 
-    Vertex * land_vertices = (Vertex *)::malloc(sizeof(Vertex) * _GRID_VTX_CNT);
-    uint16_t * land_indices = (uint16_t *)::malloc(sizeof(uint16_t) * _GRID_IDX_CNT);
-    GeomVertex * land_grid = (GeomVertex *)::malloc(sizeof(GeomVertex) * _GRID_VTX_CNT);
-    create_land_geometry(render_ctx, land_grid, land_vertices, land_indices);
+    Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
+    uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
 
-    Vertex * water_vertices = (Vertex *)::malloc(sizeof(Vertex) * _WAVE_VTX_CNT);
-    uint16_t * water_indices = (uint16_t *)::malloc(3 * (UINT64)render_ctx->waves->ntri * sizeof(uint16_t)); // 3 indices per face
-    SIMPLE_ASSERT(render_ctx->waves->nvtx < 0x0000ffff, "Invalid vertex count");
-    create_water_geometry(render_ctx, water_vertices, water_indices);
-
+    create_shape_geometry(memory, render_ctx, vts, ids);
     create_materials(render_ctx->materials);
     create_render_items(
         render_ctx->render_items,
-        &render_ctx->water_geom, &render_ctx->land_geom,
-        &render_ctx->materials[MAT_WATER_ID], &render_ctx->materials[MAT_GRASS_ID]
+        &render_ctx->geom,
+        render_ctx->materials
     );
 
 #pragma endregion Shapes and RenderItems Creation
@@ -1215,7 +1244,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_pass_cbuffers(render_ctx, &global_timer);
         update_mat_cbuffers(render_ctx);
         update_obj_cbuffers(render_ctx);
-        update_waves_vb(render_ctx, &global_timer);
+     /*   update_waves_vb(render_ctx, &global_timer);*/
 
         // OnRender()
         CHECK_AND_FAIL(draw_main(render_ctx));
@@ -1246,17 +1275,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->frame_resources[i].cmd_list_alloc->Release();
     }
 
-    render_ctx->water_geom.ib_uploader->Release();
-    //render_ctx->water_geom.vb_uploader->Release();
+    render_ctx->geom.ib_uploader->Release();
 
-    render_ctx->water_geom.ib_gpu->Release();
-    render_ctx->water_geom.vb_gpu->Release();
-
-    render_ctx->land_geom.ib_uploader->Release();
-    render_ctx->land_geom.vb_uploader->Release();
-
-    render_ctx->land_geom.ib_gpu->Release();
-    render_ctx->land_geom.vb_gpu->Release();
+    render_ctx->geom.ib_gpu->Release();
+    render_ctx->geom.vb_gpu->Release();
 
     render_ctx->direct_cmd_list->Release();
     render_ctx->pso->Release();
