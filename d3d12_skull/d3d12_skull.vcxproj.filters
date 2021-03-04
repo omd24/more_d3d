@@ -44,4 +44,9 @@
       <Filter>Resource Files</Filter>
     </FxCompile>
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="models\skull.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+  </ItemGroup>
 </Project>

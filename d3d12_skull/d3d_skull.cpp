@@ -37,6 +37,7 @@
 #define MAX_RENDERITEM_COUNT    50
 #define OBJ_COUNT               22
 #define MAT_COUNT               4       /* brick, stone, tile, skull */
+#define NUM_GEOM                2       /* shapes and skull */
 
 enum SUBMESH_INDEX {
     _BOX_ID,
@@ -103,9 +104,7 @@ struct D3DRenderContext {
     RenderItem                      render_items[MAX_RENDERITEM_COUNT];
     UINT                            pass_cbv_offset;
 
-    // TODO(omid): heap-alloc the mesh_geom(s)
-    // TODO(omid): store geom(s) in an array
-    MeshGeometry                    geom;
+    MeshGeometry                    geom[NUM_GEOM];
 
     // Synchronization stuff
     UINT                            frame_index;
@@ -142,11 +141,10 @@ static void
 create_materials (Material out_materials []) {
     strcpy_s(out_materials[MAT_BRICK_ID].name, "brick");
     out_materials[MAT_BRICK_ID].mat_cbuffer_index = 0;
-    out_materials[MAT_BRICK_ID].diffuse_albedo = XMFLOAT4(Colors::ForestGreen);
+    out_materials[MAT_BRICK_ID].diffuse_albedo = XMFLOAT4(0.65f, 0.18f, 0.18f, 1.0f);
     out_materials[MAT_BRICK_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
     out_materials[MAT_BRICK_ID].roughness = 0.1f;
     out_materials[MAT_BRICK_ID].mat_transform = Identity4x4();
-
 
     strcpy_s(out_materials[MAT_STONE_ID].name, "stone");
     out_materials[MAT_STONE_ID].mat_cbuffer_index = 1;
@@ -161,7 +159,6 @@ create_materials (Material out_materials []) {
     out_materials[MAT_TILE_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
     out_materials[MAT_TILE_ID].roughness = 0.2f;
     out_materials[MAT_TILE_ID].mat_transform = Identity4x4();
-
 
     strcpy_s(out_materials[MAT_SKULL_ID].name, "skull");
     out_materials[MAT_SKULL_ID].mat_cbuffer_index = 3;
@@ -283,29 +280,56 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
     UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
 
-    // -- Fill out render_ctx geom (output)
+    // -- Fill out render_ctx geom[0] (shapes)
+    D3DCreateBlob(vb_byte_size, &render_ctx->geom[0].vb_cpu);
+    CopyMemory(render_ctx->geom[0].vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
 
-    D3DCreateBlob(vb_byte_size, &render_ctx->geom.vb_cpu);
-    CopyMemory(render_ctx->geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+    D3DCreateBlob(ib_byte_size, &render_ctx->geom[0].ib_cpu);
+    CopyMemory(render_ctx->geom[0].ib_cpu->GetBufferPointer(), indices, ib_byte_size);
 
-    D3DCreateBlob(ib_byte_size, &render_ctx->geom.ib_cpu);
-    CopyMemory(render_ctx->geom.ib_cpu->GetBufferPointer(), indices, ib_byte_size);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom[0].vb_uploader, &render_ctx->geom[0].vb_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom[0].ib_uploader, &render_ctx->geom[0].ib_gpu);
 
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom.vb_uploader, &render_ctx->geom.vb_gpu);
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom.ib_uploader, &render_ctx->geom.ib_gpu);
+    render_ctx->geom[0].vb_byte_stide = sizeof(Vertex);
+    render_ctx->geom[0].vb_byte_size = vb_byte_size;
+    render_ctx->geom[0].ib_byte_size = ib_byte_size;
 
-    render_ctx->geom.vb_byte_stide = sizeof(Vertex);
-    render_ctx->geom.vb_byte_size = vb_byte_size;
-    render_ctx->geom.ib_byte_size = ib_byte_size;
+    render_ctx->geom[0].submesh_names[_BOX_ID] = "box";
+    render_ctx->geom[0].submesh_geoms[_BOX_ID] = box_submesh;
+    render_ctx->geom[0].submesh_names[_GRID_ID] = "grid";
+    render_ctx->geom[0].submesh_geoms[_GRID_ID] = grid_submesh;
+    render_ctx->geom[0].submesh_names[_SPHERE_ID] = "shpere";
+    render_ctx->geom[0].submesh_geoms[_SPHERE_ID] = sphere_submesh;
+    render_ctx->geom[0].submesh_names[_CYLINDER_ID] = "cylinder";
+    render_ctx->geom[0].submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
+}
+static void
+create_skull (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
+    UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
+    UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
 
-    render_ctx->geom.submesh_names[_BOX_ID] = "box";
-    render_ctx->geom.submesh_geoms[_BOX_ID] = box_submesh;
-    render_ctx->geom.submesh_names[_GRID_ID] = "grid";
-    render_ctx->geom.submesh_geoms[_GRID_ID] = grid_submesh;
-    render_ctx->geom.submesh_names[_SPHERE_ID] = "shpere";
-    render_ctx->geom.submesh_geoms[_SPHERE_ID] = sphere_submesh;
-    render_ctx->geom.submesh_names[_CYLINDER_ID] = "cylinder";
-    render_ctx->geom.submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
+    // -- Fill out render_ctx geom[1] (skull)
+    D3DCreateBlob(vb_byte_size, &render_ctx->geom[1].vb_cpu);
+    CopyMemory(render_ctx->geom[1].vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+
+    D3DCreateBlob(ib_byte_size, &render_ctx->geom[1].ib_cpu);
+    CopyMemory(render_ctx->geom[1].ib_cpu->GetBufferPointer(), indices, ib_byte_size);
+
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom[1].vb_uploader, &render_ctx->geom[1].vb_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom[1].ib_uploader, &render_ctx->geom[1].ib_gpu);
+
+    render_ctx->geom[1].vb_byte_stide = sizeof(Vertex);
+    render_ctx->geom[1].vb_byte_size = vb_byte_size;
+    render_ctx->geom[1].ib_byte_size = ib_byte_size;
+
+    render_ctx->geom[1].submesh_names[_BOX_ID] = "box";
+    render_ctx->geom[1].submesh_geoms[_BOX_ID] = box_submesh;
+    render_ctx->geom[1].submesh_names[_GRID_ID] = "grid";
+    render_ctx->geom[1].submesh_geoms[_GRID_ID] = grid_submesh;
+    render_ctx->geom[1].submesh_names[_SPHERE_ID] = "shpere";
+    render_ctx->geom[1].submesh_geoms[_SPHERE_ID] = sphere_submesh;
+    render_ctx->geom[1].submesh_names[_CYLINDER_ID] = "cylinder";
+    render_ctx->geom[1].submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
 }
 static void
 create_render_items (RenderItem render_items [], MeshGeometry * geom, Material materials []) {
@@ -698,10 +722,12 @@ update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
     render_ctx->main_pass_constants.total_time = Timer_GetTotalTime(timer);
     render_ctx->main_pass_constants.ambient_light = {.25f, .25f, .35f, 1.0f};
 
-    XMVECTOR light_dir = spherical_to_cartesian(1.0f, global_scene_ctx.sun_theta, global_scene_ctx.sun_phi);
-    light_dir = -light_dir;
-    XMStoreFloat3(&render_ctx->main_pass_constants.lights[0].direction, light_dir);
+    render_ctx->main_pass_constants.lights[0].direction = {0.57735f, -0.57735f, 0.57735f};
     render_ctx->main_pass_constants.lights[0].strength = {0.6f, 0.6f, 0.6f};
+    render_ctx->main_pass_constants.lights[1].direction = {-0.57735f, -0.57735f, 0.57735f};
+    render_ctx->main_pass_constants.lights[1].strength = {0.3f, 0.3f, 0.3f};
+    render_ctx->main_pass_constants.lights[2].direction = {0.0f, -0.707f, -0.707f};
+    render_ctx->main_pass_constants.lights[2].strength = {0.15f, 0.15f, 0.15f};
 
     uint8_t * pass_ptr = render_ctx->frame_resources[render_ctx->frame_index].pass_cb_data_ptr;
     memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstants));
@@ -865,6 +891,20 @@ init_renderctx (D3DRenderContext * render_ctx) {
     render_ctx->main_pass_constants.lights[0].position = {0.0f, 0.0f, 0.0f};
     render_ctx->main_pass_constants.lights[0].spot_power = 64.0f;
 
+    render_ctx->main_pass_constants.lights[1].strength = {.5f,.5f,.5f};
+    render_ctx->main_pass_constants.lights[1].falloff_start = 1.0f;
+    render_ctx->main_pass_constants.lights[1].direction = {0.0f, -1.0f, 0.0f};
+    render_ctx->main_pass_constants.lights[1].falloff_end = 10.0f;
+    render_ctx->main_pass_constants.lights[1].position = {0.0f, 0.0f, 0.0f};
+    render_ctx->main_pass_constants.lights[1].spot_power = 64.0f;
+
+    render_ctx->main_pass_constants.lights[2].strength = {.5f,.5f,.5f};
+    render_ctx->main_pass_constants.lights[2].falloff_start = 1.0f;
+    render_ctx->main_pass_constants.lights[2].direction = {0.0f, -1.0f, 0.0f};
+    render_ctx->main_pass_constants.lights[2].falloff_end = 10.0f;
+    render_ctx->main_pass_constants.lights[2].position = {0.0f, 0.0f, 0.0f};
+    render_ctx->main_pass_constants.lights[2].spot_power = 64.0f;
+
 }
 static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -890,9 +930,15 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     case WM_MOUSEMOVE: {
         handle_mouse_move(&global_scene_ctx, wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
     } break;
-    case WM_CLOSE: {
+    //case WM_CLOSE: {
+    //    global_running = false;
+    //    PostQuitMessage(0);
+    //    //DestroyWindow(hwnd);
+    //    ret = 0;
+    //} break;
+    case WM_DESTROY: {
         global_running = false;
-        DestroyWindow(hwnd);
+        //PostQuitMessage(0);
         ret = 0;
     } break;
     default: {
@@ -1186,7 +1232,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     create_materials(render_ctx->materials);
     create_render_items(
         render_ctx->render_items,
-        &render_ctx->geom,
+        &render_ctx->geom[0],
         render_ctx->materials
     );
 
@@ -1266,19 +1312,19 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->frame_resources[i].obj_cb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].mat_cb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].pass_cb->Unmap(0, nullptr);
-        render_ctx->frame_resources[i].waves_vb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].obj_cb->Release();
         render_ctx->frame_resources[i].mat_cb->Release();
         render_ctx->frame_resources[i].pass_cb->Release();
-        render_ctx->frame_resources[i].waves_vb->Release();
 
         render_ctx->frame_resources[i].cmd_list_alloc->Release();
     }
+    for (unsigned i = 0; i < NUM_GEOM; i++) {
+        render_ctx->geom[i].ib_uploader->Release();
+        render_ctx->geom[i].vb_uploader->Release();
 
-    render_ctx->geom.ib_uploader->Release();
-
-    render_ctx->geom.ib_gpu->Release();
-    render_ctx->geom.vb_gpu->Release();
+        render_ctx->geom[i].ib_gpu->Release();
+        render_ctx->geom[i].vb_gpu->Release();
+    }
 
     render_ctx->direct_cmd_list->Release();
     render_ctx->pso->Release();
