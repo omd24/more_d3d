@@ -293,6 +293,7 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     render_ctx->geom[0].vb_byte_stide = sizeof(Vertex);
     render_ctx->geom[0].vb_byte_size = vb_byte_size;
     render_ctx->geom[0].ib_byte_size = ib_byte_size;
+    render_ctx->geom[1].index_format = DXGI_FORMAT_R16_UINT;
 
     render_ctx->geom[0].submesh_names[_BOX_ID] = "box";
     render_ctx->geom[0].submesh_geoms[_BOX_ID] = box_submesh;
@@ -304,9 +305,82 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     render_ctx->geom[0].submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
 }
 static void
-create_skull (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
-    UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
-    UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
+create_skull (D3DRenderContext * render_ctx   /*, Vertex vertices [], uint16_t indices []*/) {
+
+#pragma region Read data file
+    FILE * f = nullptr;
+    errno_t err = fopen_s(&f, "./models/skull.txt", "r");
+    if (0 == f || err != 0) {
+        printf("could not open file\n");
+        return;
+    }
+    char linebuf[100];
+    int cnt = 0;
+    unsigned vcount = 0;
+    unsigned tcount = 0;
+    // -- read 1st line
+    if (fgets(linebuf, sizeof(linebuf), f))
+        cnt = sscanf_s(linebuf, "%*s %d", &vcount);
+    if (cnt != 1) {
+        printf("read error\n");
+        printf("read line: %s\n", linebuf);
+        return;
+    }
+    // -- read 2nd line
+    if (fgets(linebuf, sizeof(linebuf), f))
+        cnt = sscanf_s(linebuf, "%*s %d", &tcount);
+    if (cnt != 1) {
+        printf("read error\n");
+        printf("read line: %s\n", linebuf);
+        return;
+    }
+    // -- skip two lines
+    fgets(linebuf, sizeof(linebuf), f);
+    fgets(linebuf, sizeof(linebuf), f);
+    // -- read vertices
+    Vertex * vertices = (Vertex *)calloc(vcount, sizeof(Vertex));
+    for (unsigned i = 0; i < vcount; i++) {
+        fgets(linebuf, sizeof(linebuf), f);
+        cnt = sscanf_s(
+            linebuf, "%f %f %f %f %f %f",
+            &vertices[i].position.x, &vertices[i].position.y, &vertices[i].position.z,
+            &vertices[i].normal.x, &vertices[i].normal.y, &vertices[i].normal.z
+        );
+        if (cnt != 6) {
+            printf("read error\n");
+            printf("read line: %s\n", linebuf);
+            return;
+        }
+    }
+    // -- skip three lines
+    fgets(linebuf, sizeof(linebuf), f);
+    fgets(linebuf, sizeof(linebuf), f);
+    fgets(linebuf, sizeof(linebuf), f);
+    // -- read indices
+    uint32_t * indices = (uint32_t *)calloc(tcount * 3, sizeof(uint32_t));
+    for (unsigned i = 0; i < tcount; i++) {
+        fgets(linebuf, sizeof(linebuf), f);
+        cnt = sscanf_s(
+            linebuf, "%d %d %d",
+            &indices[i * 3 + 0], &indices[i * 3 + 1], &indices[i * 3 + 2]
+        );
+        if (cnt != 3) {
+            printf("read error\n");
+            printf("read line: %s\n", linebuf);
+            return;
+        }
+    }
+
+    // -- free heap-allocated memory
+    /*
+    free(vertices);
+    free(indices);
+    */
+    fclose(f);
+#pragma endregion   Read data file
+
+    UINT vb_byte_size = vcount * sizeof(Vertex);
+    UINT ib_byte_size = (tcount * 3) * sizeof(uint32_t);
 
     // -- Fill out render_ctx geom[1] (skull)
     D3DCreateBlob(vb_byte_size, &render_ctx->geom[1].vb_cpu);
@@ -321,15 +395,16 @@ create_skull (D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indice
     render_ctx->geom[1].vb_byte_stide = sizeof(Vertex);
     render_ctx->geom[1].vb_byte_size = vb_byte_size;
     render_ctx->geom[1].ib_byte_size = ib_byte_size;
+    render_ctx->geom[1].index_format = DXGI_FORMAT_R32_UINT;
 
-    render_ctx->geom[1].submesh_names[_BOX_ID] = "box";
-    render_ctx->geom[1].submesh_geoms[_BOX_ID] = box_submesh;
-    render_ctx->geom[1].submesh_names[_GRID_ID] = "grid";
-    render_ctx->geom[1].submesh_geoms[_GRID_ID] = grid_submesh;
-    render_ctx->geom[1].submesh_names[_SPHERE_ID] = "shpere";
-    render_ctx->geom[1].submesh_geoms[_SPHERE_ID] = sphere_submesh;
-    render_ctx->geom[1].submesh_names[_CYLINDER_ID] = "cylinder";
-    render_ctx->geom[1].submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
+    SubmeshGeometry submesh = {};
+    submesh.index_count = tcount * 3;
+    submesh.start_index_location = 0;
+    submesh.base_vertex_location = 0;
+
+    render_ctx->geom[1].submesh_names[0] = "skull";
+    render_ctx->geom[1].submesh_geoms[0] = submesh;
+
 }
 static void
 create_render_items (RenderItem render_items [], MeshGeometry * geom, Material materials []) {

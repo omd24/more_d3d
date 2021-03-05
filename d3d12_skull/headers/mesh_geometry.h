@@ -44,6 +44,8 @@ struct MeshGeometry {
     ID3D12Resource * vb_uploader;
     ID3D12Resource * ib_uploader;
 
+    DXGI_FORMAT index_format;
+
     // A MeshGeometry may store multiple geometries in one vertex/index buffer.
     // Use this container to define the Submesh geometries so we can draw
     // the Submeshes individually.
@@ -65,7 +67,7 @@ D3D12_INDEX_BUFFER_VIEW
 Mesh_GetIndexBufferView (MeshGeometry * mesh) {
     D3D12_INDEX_BUFFER_VIEW ibv;
     ibv.BufferLocation = mesh->ib_gpu->GetGPUVirtualAddress();
-    ibv.Format = DXGI_FORMAT_R16_UINT;
+    ibv.Format = mesh->index_format;
     ibv.SizeInBytes = mesh->ib_byte_size;
 
     return ibv;
