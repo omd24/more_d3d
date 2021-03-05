@@ -10,7 +10,7 @@
 
 #include "headers/common.h"
 
-#define MAX_SUBMESH_COUNT    100
+#define MAX_SUBMESH_COUNT    50
 
 // Defines a subrange of geometry in a MeshGeometry.  This is for when multiple
 // geometries are stored in one vertex and index buffer.  It provides the offsets

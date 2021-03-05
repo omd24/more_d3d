@@ -35,8 +35,9 @@
 #define NUM_QUEUING_FRAMES      3
 
 #define MAX_RENDERITEM_COUNT    50
-#define OBJ_COUNT               22
+#define OBJ_COUNT               23
 #define MAT_COUNT               4       /* brick, stone, tile, skull */
+
 #define NUM_GEOM                2       /* shapes and skull */
 
 enum SUBMESH_INDEX {
@@ -168,7 +169,12 @@ create_materials (Material out_materials []) {
     out_materials[MAT_SKULL_ID].mat_transform = Identity4x4();
 }
 static void
-create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vertices [], uint16_t indices []) {
+create_shape_geometry (D3DRenderContext * render_ctx) {
+
+    // -- fluffy memory allocation
+    Vertex *    vertices = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
+    uint16_t *  indices = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    BYTE *      scratch = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
 
     // box
     UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
@@ -183,14 +189,14 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
     //UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT; // not used
 
-    GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(memory);
-    uint16_t *      box_indices = reinterpret_cast<uint16_t *>(memory + bsz);
-    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(memory + bsz_id);
-    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(memory + gsz);
-    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(memory + gsz_id);
-    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(memory + ssz);
-    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(memory + ssz_id);
-    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(memory + csz);
+    GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(scratch);
+    uint16_t *      box_indices = reinterpret_cast<uint16_t *>(scratch + bsz);
+    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(scratch + bsz_id);
+    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(scratch + gsz);
+    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(scratch + gsz_id);
+    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(scratch + ssz);
+    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(scratch + ssz_id);
+    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(scratch + csz);
 
     create_box(1.5f, 0.5f, 1.5f, box_vertices, box_indices);
     create_grid(20.0f, 30.0f, 60, 40, grid_vertices, grid_indices);
@@ -214,7 +220,6 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
 
     // Define the SubmeshGeometry that cover different 
     // regions of the vertex/index buffers.
-
     SubmeshGeometry box_submesh = {};
     box_submesh.index_count = _BOX_IDX_CNT;
     box_submesh.start_index_location = box_index_offset;
@@ -282,10 +287,12 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
 
     // -- Fill out render_ctx geom[0] (shapes)
     D3DCreateBlob(vb_byte_size, &render_ctx->geom[0].vb_cpu);
-    CopyMemory(render_ctx->geom[0].vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
+    if (vertices)
+        CopyMemory(render_ctx->geom[0].vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
 
     D3DCreateBlob(ib_byte_size, &render_ctx->geom[0].ib_cpu);
-    CopyMemory(render_ctx->geom[0].ib_cpu->GetBufferPointer(), indices, ib_byte_size);
+    if (indices)
+        CopyMemory(render_ctx->geom[0].ib_cpu->GetBufferPointer(), indices, ib_byte_size);
 
     create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom[0].vb_uploader, &render_ctx->geom[0].vb_gpu);
     create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom[0].ib_uploader, &render_ctx->geom[0].ib_gpu);
@@ -293,7 +300,7 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     render_ctx->geom[0].vb_byte_stide = sizeof(Vertex);
     render_ctx->geom[0].vb_byte_size = vb_byte_size;
     render_ctx->geom[0].ib_byte_size = ib_byte_size;
-    render_ctx->geom[1].index_format = DXGI_FORMAT_R16_UINT;
+    render_ctx->geom[0].index_format = DXGI_FORMAT_R16_UINT;
 
     render_ctx->geom[0].submesh_names[_BOX_ID] = "box";
     render_ctx->geom[0].submesh_geoms[_BOX_ID] = box_submesh;
@@ -303,11 +310,16 @@ create_shape_geometry (BYTE * memory, D3DRenderContext * render_ctx, Vertex vert
     render_ctx->geom[0].submesh_geoms[_SPHERE_ID] = sphere_submesh;
     render_ctx->geom[0].submesh_names[_CYLINDER_ID] = "cylinder";
     render_ctx->geom[0].submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
+
+    // -- cleanup
+    free(scratch);
+    free(indices);
+    free(vertices);
 }
 static void
-create_skull (D3DRenderContext * render_ctx   /*, Vertex vertices [], uint16_t indices []*/) {
+create_skull_geometry (D3DRenderContext * render_ctx   /*, Vertex vertices [], uint16_t indices []*/) {
 
-#pragma region Read data file
+#pragma region Read_Data_File
     FILE * f = nullptr;
     errno_t err = fopen_s(&f, "./models/skull.txt", "r");
     if (0 == f || err != 0) {
@@ -371,13 +383,13 @@ create_skull (D3DRenderContext * render_ctx   /*, Vertex vertices [], uint16_t i
         }
     }
 
-    // -- free heap-allocated memory
+    // -- remember to free heap-allocated memory
     /*
     free(vertices);
     free(indices);
     */
     fclose(f);
-#pragma endregion   Read data file
+#pragma endregion   Read_Data_File
 
     UINT vb_byte_size = vcount * sizeof(Vertex);
     UINT ib_byte_size = (tcount * 3) * sizeof(uint32_t);
@@ -405,38 +417,54 @@ create_skull (D3DRenderContext * render_ctx   /*, Vertex vertices [], uint16_t i
     render_ctx->geom[1].submesh_names[0] = "skull";
     render_ctx->geom[1].submesh_geoms[0] = submesh;
 
+    // -- cleanup
+    free(vertices);
+    free(indices);
 }
 static void
-create_render_items (RenderItem render_items [], MeshGeometry * geom, Material materials []) {
+create_render_items (RenderItem render_items [], MeshGeometry * shapes_geom, MeshGeometry * skull_geom, Material materials []) {
     // NOTE(omid): RenderItems elements 
     /*
         0: box
         1: grid
-        2-22: cylinders and spheres
+        2: skull
+        3-23: cylinders and spheres
     */
 
     UINT _curr = 0;
 
     XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
-    render_items[_curr].geometry = geom;
+    render_items[_curr].geometry = shapes_geom;
     render_items[_curr].mat = &materials[MAT_STONE_ID];
     render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_curr].index_count = geom->submesh_geoms[_BOX_ID].index_count;
-    render_items[_curr].start_index_loc = geom->submesh_geoms[_BOX_ID].start_index_location;
-    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_BOX_ID].base_vertex_location;
+    render_items[_curr].index_count = shapes_geom->submesh_geoms[_BOX_ID].index_count;
+    render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_BOX_ID].start_index_location;
+    render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_BOX_ID].base_vertex_location;
     render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
     render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
     ++_curr;
 
     render_items[_curr].world = Identity4x4();
     render_items[_curr].obj_cbuffer_index = _curr;
-    render_items[_curr].geometry = geom;
+    render_items[_curr].geometry = shapes_geom;
     render_items[_curr].mat = &materials[MAT_TILE_ID];
     render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_curr].index_count = geom->submesh_geoms[_GRID_ID].index_count;
-    render_items[_curr].start_index_loc = geom->submesh_geoms[_GRID_ID].start_index_location;
-    render_items[_curr].base_vertex_loc = geom->submesh_geoms[_GRID_ID].base_vertex_location;
+    render_items[_curr].index_count = shapes_geom->submesh_geoms[_GRID_ID].index_count;
+    render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_GRID_ID].start_index_location;
+    render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_GRID_ID].base_vertex_location;
+    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    ++_curr;
+
+    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(0.5f, 0.5f, 0.5f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
+    render_items[_curr].obj_cbuffer_index = _curr;
+    render_items[_curr].geometry = skull_geom;
+    render_items[_curr].mat = &materials[MAT_SKULL_ID];
+    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[_curr].index_count = skull_geom->submesh_geoms[0].index_count;
+    render_items[_curr].start_index_loc = skull_geom->submesh_geoms[0].start_index_location;
+    render_items[_curr].base_vertex_loc = skull_geom->submesh_geoms[0].base_vertex_location;
     render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
     render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
     ++_curr;
@@ -450,48 +478,48 @@ create_render_items (RenderItem render_items [], MeshGeometry * geom, Material m
 
         XMStoreFloat4x4(&render_items[_curr].world, right_cylinder_world);
         render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
+        render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_BRICK_ID];
         render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        render_items[_curr].index_count = shapes_geom->submesh_geoms[_CYLINDER_ID].index_count;
+        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
         render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
         render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
+        render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_BRICK_ID];
         render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_CYLINDER_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_CYLINDER_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
+        render_items[_curr].index_count = shapes_geom->submesh_geoms[_CYLINDER_ID].index_count;
+        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
         render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
         render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
+        render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_STONE_ID];
         render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        render_items[_curr].index_count = shapes_geom->submesh_geoms[_SPHERE_ID].index_count;
+        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_SPHERE_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
         render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
         render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = geom;
+        render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_STONE_ID];
         render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = geom->submesh_geoms[_SPHERE_ID].index_count;
-        render_items[_curr].start_index_loc = geom->submesh_geoms[_SPHERE_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
+        render_items[_curr].index_count = shapes_geom->submesh_geoms[_SPHERE_ID].index_count;
+        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_SPHERE_ID].start_index_location;
+        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
         render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
         render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         ++_curr;
@@ -679,7 +707,6 @@ handle_keyboard_input (SceneContext * scene_ctx, GameTimer * gt) {
 
     scene_ctx->sun_phi = CLAMP_VALUE(scene_ctx->sun_phi, 0.1f, XM_PIDIV2);
 }
-
 static void
 handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
     if ((wParam & MK_LBUTTON) != 0) {
@@ -1142,7 +1169,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     create_descriptor_heaps(render_ctx);
 
-#pragma region Create DSV
+#pragma region Dsv_Creation
 // Create the depth/stencil buffer and view.
     D3D12_RESOURCE_DESC ds_desc;
     ds_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1195,9 +1222,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         &dsv_desc,
         render_ctx->dsv_heap->GetCPUDescriptorHandleForHeapStart()
     );
-#pragma endregion Create DSV
+#pragma endregion Dsv_Creation
 
-#pragma region Create RTV
+#pragma region Rtv_Creation
     // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
     render_ctx->rtv_descriptor_size = render_ctx->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
@@ -1210,9 +1237,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // -- create a rtv for each frame
         render_ctx->device->CreateRenderTargetView(render_ctx->render_targets[i], nullptr, cpu_handle);
     }
-#pragma endregion Create RTV
+#pragma endregion Rtv_Creation
 
-#pragma region Create CBuffers    UINT obj_cb_size = sizeof(ObjectConstants);
+#pragma region Cbuffers_Creation
     UINT obj_cb_size = sizeof(ObjectConstants);
     UINT mat_cb_size = sizeof(MaterialConstants);
     UINT pass_cb_size = sizeof(PassConstants);
@@ -1234,16 +1261,16 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         ::memcpy(render_ctx->frame_resources[i].pass_cb_data_ptr, &render_ctx->frame_resources[i].pass_cb_data, sizeof(render_ctx->frame_resources[i].pass_cb_data));
 
     }
-#pragma endregion Create CBuffers
+#pragma endregion Cbuffers_Creation
 
     // ========================================================================================================
-#pragma region Root Signature
+#pragma region Root_Signature_Creation
     create_root_signature(render_ctx->device, &render_ctx->root_signature);
-#pragma endregion Root Signature
+#pragma endregion Root_Signature_Creation
 
     // Load and compile shaders
 
-#pragma region Compile Shaders
+#pragma region Compile_Shaders
 // -- using DXC shader compiler [from https://asawicki.info/news_1719_two_shader_compilers_of_direct3d_12]
 
     IDxcLibrary * dxc_lib = nullptr;
@@ -1285,9 +1312,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     SIMPLE_ASSERT(vertex_shader_code, "invalid shader");
     SIMPLE_ASSERT(pixel_shader_code, "invalid shader");
 
-#pragma endregion Compile Shaders
+#pragma endregion Compile_Shaders
 
-#pragma region PSO Creation
+#pragma region PSO_Creation
     create_pso(render_ctx, vertex_shader_code, pixel_shader_code);
 
     // Create command list
@@ -1295,23 +1322,21 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     if (current_alloc) {
         render_ctx->device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, current_alloc, render_ctx->pso, IID_PPV_ARGS(&render_ctx->direct_cmd_list));
     }
-#pragma endregion PSO Creation
+#pragma endregion PSO_Creation
 
-#pragma region Shapes and RenderItems Creation
+#pragma region Shapes_And_Renderitem_Creation
 
-    Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
-    uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
-    BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
-
-    create_shape_geometry(memory, render_ctx, vts, ids);
+    create_shape_geometry(render_ctx);
+    create_skull_geometry(render_ctx);
     create_materials(render_ctx->materials);
     create_render_items(
         render_ctx->render_items,
-        &render_ctx->geom[0],
+        &render_ctx->geom[0],       // shapes
+        &render_ctx->geom[1],       // skull
         render_ctx->materials
     );
 
-#pragma endregion Shapes and RenderItems Creation
+#pragma endregion Shapes_And_Renderitem_Creation
 
     // NOTE(omid): Before closing/executing command list specify the depth-stencil-buffer transition from its initial state to be used as a depth buffer.
     D3D12_RESOURCE_BARRIER ds_barrier = create_barrier(render_ctx->depth_stencil_buffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE);
