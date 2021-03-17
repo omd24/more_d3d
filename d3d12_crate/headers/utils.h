@@ -342,8 +342,10 @@ update_subresources_heap (
     HeapFree(GetProcessHeap(), 0, mem_ptr);
     return required_size;
 }
+
 // Stack-allocating UpdateSubresources
  /*refer to stack-allocating UpdateSubresources implementation in d3dx12.h (towards the end)*/
+template <UINT MAX_SUBRESOURCES>
 inline UINT64
 update_subresources_stack (
     ID3D12GraphicsCommandList * cmd_list,
@@ -354,14 +356,13 @@ update_subresources_stack (
     UINT n_subresources,
     D3D12_SUBRESOURCE_DATA * src_data
 ) {
-    UINT const MaxSubresources = 1;
-    SIMPLE_ASSERT(first_subresource < MaxSubresources, "invalid first_subresource");
-    SIMPLE_ASSERT(0 < n_subresources && n_subresources <= (MaxSubresources - first_subresource), "invalid n_subresources");
+    SIMPLE_ASSERT(first_subresource < MAX_SUBRESOURCES, "invalid first_subresource");
+    SIMPLE_ASSERT(0 < n_subresources && n_subresources <= (MAX_SUBRESOURCES - first_subresource), "invalid n_subresources");
 
     UINT64 required_size = 0;
-    D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[MaxSubresources];
-    UINT n_rows[MaxSubresources];
-    UINT64 row_sizes_in_bytes[MaxSubresources];
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[MAX_SUBRESOURCES];
+    UINT n_rows[MAX_SUBRESOURCES];
+    UINT64 row_sizes_in_bytes[MAX_SUBRESOURCES];
 
     D3D12_RESOURCE_DESC desc = dest_resource->GetDesc();
     ID3D12Device * device;
@@ -508,7 +509,7 @@ create_default_buffer (
     barrier2.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
     cmd_list->ResourceBarrier(1, &barrier1);
-    update_subresources_stack(cmd_list, *default_buffer, *upload_buffer, 0, 0, 1, &subresource_data);
+    update_subresources_stack<1>(cmd_list, *default_buffer, *upload_buffer, 0, 0, 1, &subresource_data);
     cmd_list->ResourceBarrier(1, &barrier2);
 
     // Note: upload_buffer has to be kept alive after the above function calls because

@@ -32,6 +32,7 @@
 // TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)
 #define NUM_BACKBUFFERS         2
 #define NUM_QUEUING_FRAMES      3
+#define NUM_STATIC_SAMPLERS     6
 
 #define MAX_RENDERITEM_COUNT    50
 #define OBJ_COUNT               23
@@ -55,6 +56,14 @@ enum MAT_INDEX {
 enum TEX_INDEX {
     TEX_CRATE01 = 0,
     TEX_CRATE02 = 1
+};
+enum SAMPLER_INDEX {
+    SAMPLER_POINT_WRAP = 0,
+    SAMPLER_POINT_CLAMP = 1,
+    SAMPLER_LINEAR_WRAP = 2,
+    SAMPLER_LINEAR_CLAMP = 3,
+    SAMPLER_ANISOTROPIC_WRAP = 4,
+    SAMPLER_ANISOTROPIC_CLAMP = 5
 };
 struct SceneContext {
     // camera settings (spherical coordinate)
@@ -100,6 +109,7 @@ struct D3DRenderContext {
 
     ID3D12DescriptorHeap *          rtv_heap;
     ID3D12DescriptorHeap *          dsv_heap;
+    ID3D12DescriptorHeap *          srv_heap;
 
     PassConstants                   main_pass_constants;
 
@@ -124,22 +134,6 @@ struct D3DRenderContext {
     Material                        materials[MAT_COUNT];
     Texture                         textures[TEX_COUNT];
 };
-// NOTE(omid): Don't worry this is expermental!
-#define _BOX_VTX_CNT   24
-#define _BOX_IDX_CNT   36
-
-#define _GRID_VTX_CNT   2400
-#define _GRID_IDX_CNT   13806
-
-#define _SPHERE_VTX_CNT   401
-#define _SPHERE_IDX_CNT   2280
-
-#define _CYLINDER_VTX_CNT   485
-#define _CYLINDER_IDX_CNT   2520
-
-#define _TOTAL_VTX_CNT  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT)
-#define _TOTAL_IDX_CNT  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT)
-
 
 #pragma region replace this with c-style code
 #include <vector>
@@ -192,7 +186,7 @@ create_textures (
         nullptr,
         IID_PPV_ARGS(&out_textures[TEX_CRATE01].upload_heap)
     );
-    
+
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -239,6 +233,21 @@ create_materials (Material out_materials []) {
     out_materials[MAT_SKULL_ID].roughness = 0.3f;
     out_materials[MAT_SKULL_ID].mat_transform = Identity4x4();
 }
+// NOTE(omid): Don't worry this is expermental!
+#define _BOX_VTX_CNT   24
+#define _BOX_IDX_CNT   36
+
+#define _GRID_VTX_CNT   2400
+#define _GRID_IDX_CNT   13806
+
+#define _SPHERE_VTX_CNT   401
+#define _SPHERE_IDX_CNT   2280
+
+#define _CYLINDER_VTX_CNT   485
+#define _CYLINDER_IDX_CNT   2520
+
+#define _TOTAL_VTX_CNT  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT)
+#define _TOTAL_IDX_CNT  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT)
 static void
 create_shape_geometry (D3DRenderContext * render_ctx) {
 
@@ -388,7 +397,7 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
     free(vertices);
 }
 static void
-create_skull_geometry (D3DRenderContext * render_ctx   /*, Vertex vertices [], uint16_t indices []*/) {
+create_skull_geometry (D3DRenderContext * render_ctx) {
 
 #pragma region Read_Data_File
     FILE * f = nullptr;
@@ -630,6 +639,26 @@ draw_render_items (
 static void
 create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
+    // Create Shader Resource View descriptor heap
+    D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
+    srv_heap_desc.NumDescriptors = 1;
+    srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    render_ctx->device->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&render_ctx->srv_heap));
+
+    // Fill out the heap with descriptors
+    D3D12_CPU_DESCRIPTOR_HANDLE descriptor_cpu_handle = render_ctx->srv_heap->GetCPUDescriptorHandleForHeapStart();
+    ID3D12Resource * wood_crate_tex = render_ctx->textures[TEX_CRATE01].resource;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Format = wood_crate_tex->GetDesc().Format;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Texture2D.MostDetailedMip = 0;
+    srv_desc.Texture2D.MipLevels = wood_crate_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+    render_ctx->device->CreateShaderResourceView(wood_crate_tex, &srv_desc, descriptor_cpu_handle);
+
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
     rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
@@ -646,31 +675,144 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     render_ctx->device->CreateDescriptorHeap(&dsv_heap_desc, IID_PPV_ARGS(&render_ctx->dsv_heap));
 }
 static void
+get_static_samplers (D3D12_STATIC_SAMPLER_DESC out_samplers []) {
+    // 0: PointWrap
+    out_samplers[SAMPLER_POINT_WRAP] = {};
+    out_samplers[SAMPLER_POINT_WRAP].ShaderRegister = 0;
+    out_samplers[SAMPLER_POINT_WRAP].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    out_samplers[SAMPLER_POINT_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_POINT_WRAP].MipLODBias = 0;
+    out_samplers[SAMPLER_POINT_WRAP].MaxAnisotropy = 16;
+    out_samplers[SAMPLER_POINT_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_POINT_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_POINT_WRAP].MinLOD = 0.f;
+    out_samplers[SAMPLER_POINT_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_POINT_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_POINT_WRAP].RegisterSpace = 0;
+
+    // 1: PointClamp
+    out_samplers[SAMPLER_POINT_CLAMP] = {};
+    out_samplers[SAMPLER_POINT_CLAMP].ShaderRegister = 1;
+    out_samplers[SAMPLER_POINT_CLAMP].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    out_samplers[SAMPLER_POINT_CLAMP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_CLAMP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_CLAMP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_CLAMP].MipLODBias = 0;
+    out_samplers[SAMPLER_POINT_CLAMP].MaxAnisotropy = 16;
+    out_samplers[SAMPLER_POINT_CLAMP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_POINT_CLAMP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_POINT_CLAMP].MinLOD = 0.f;
+    out_samplers[SAMPLER_POINT_CLAMP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_POINT_CLAMP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_POINT_CLAMP].RegisterSpace = 0;
+
+    // 2: LinearWrap
+    out_samplers[SAMPLER_LINEAR_WRAP] = {};
+    out_samplers[SAMPLER_LINEAR_WRAP].ShaderRegister = 2;
+    out_samplers[SAMPLER_LINEAR_WRAP].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    out_samplers[SAMPLER_LINEAR_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_LINEAR_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_LINEAR_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_LINEAR_WRAP].MipLODBias = 0;
+    out_samplers[SAMPLER_LINEAR_WRAP].MaxAnisotropy = 16;
+    out_samplers[SAMPLER_LINEAR_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_LINEAR_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_LINEAR_WRAP].MinLOD = 0.f;
+    out_samplers[SAMPLER_LINEAR_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_LINEAR_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_LINEAR_WRAP].RegisterSpace = 0;
+
+    // 3: LinearClamp
+    out_samplers[SAMPLER_POINT_WRAP] = {};
+    out_samplers[SAMPLER_POINT_WRAP].ShaderRegister = 3;
+    out_samplers[SAMPLER_POINT_WRAP].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    out_samplers[SAMPLER_POINT_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_WRAP].MipLODBias = 0;
+    out_samplers[SAMPLER_POINT_WRAP].MaxAnisotropy = 16;
+    out_samplers[SAMPLER_POINT_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_POINT_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_POINT_WRAP].MinLOD = 0.f;
+    out_samplers[SAMPLER_POINT_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_POINT_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_POINT_WRAP].RegisterSpace = 0;
+
+    // 4: AnisotropicWrap
+    out_samplers[SAMPLER_POINT_WRAP] = {};
+    out_samplers[SAMPLER_POINT_WRAP].ShaderRegister = 4;
+    out_samplers[SAMPLER_POINT_WRAP].Filter = D3D12_FILTER_ANISOTROPIC;
+    out_samplers[SAMPLER_POINT_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_POINT_WRAP].MipLODBias = 0.0f;
+    out_samplers[SAMPLER_POINT_WRAP].MaxAnisotropy = 8;
+    out_samplers[SAMPLER_POINT_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_POINT_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_POINT_WRAP].MinLOD = 0.f;
+    out_samplers[SAMPLER_POINT_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_POINT_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_POINT_WRAP].RegisterSpace = 0;
+
+    // 5: AnisotropicClamp
+    out_samplers[SAMPLER_POINT_WRAP] = {};
+    out_samplers[SAMPLER_POINT_WRAP].ShaderRegister = 5;
+    out_samplers[SAMPLER_POINT_WRAP].Filter = D3D12_FILTER_ANISOTROPIC;
+    out_samplers[SAMPLER_POINT_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_POINT_WRAP].MipLODBias = 0.0f;
+    out_samplers[SAMPLER_POINT_WRAP].MaxAnisotropy = 8;
+    out_samplers[SAMPLER_POINT_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_POINT_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_POINT_WRAP].MinLOD = 0.f;
+    out_samplers[SAMPLER_POINT_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_POINT_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_POINT_WRAP].RegisterSpace = 0;
+}
+static void
 create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
-    // Root parameters here are root cbv (as opposed to table).
-    D3D12_ROOT_PARAMETER slot_root_params[3] = {};
-    // Create root CBVs.
-    slot_root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    slot_root_params[0].Descriptor.ShaderRegister = 0;
-    slot_root_params[0].Descriptor.RegisterSpace = 0;
-    slot_root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_DESCRIPTOR_RANGE tex_table = {};
+    tex_table.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    tex_table.NumDescriptors = 1;
+    tex_table.BaseShaderRegister = 0;
+    tex_table.RegisterSpace = 0;
+    tex_table.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER slot_root_params[4] = {};
+    // NOTE(omid): Perfomance tip! Order from most frequent to least frequent.
+    slot_root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    slot_root_params[0].DescriptorTable.NumDescriptorRanges = 1;
+    slot_root_params[0].DescriptorTable.pDescriptorRanges = &tex_table;
+    slot_root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     slot_root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    slot_root_params[1].Descriptor.ShaderRegister = 1;
+    slot_root_params[1].Descriptor.ShaderRegister = 0;
     slot_root_params[1].Descriptor.RegisterSpace = 0;
     slot_root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     slot_root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    slot_root_params[2].Descriptor.ShaderRegister = 2;
+    slot_root_params[2].Descriptor.ShaderRegister = 1;
     slot_root_params[2].Descriptor.RegisterSpace = 0;
     slot_root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
+    slot_root_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    slot_root_params[3].Descriptor.ShaderRegister = 2;
+    slot_root_params[3].Descriptor.RegisterSpace = 0;
+    slot_root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_STATIC_SAMPLER_DESC samplers[NUM_STATIC_SAMPLERS] = {};
+    get_static_samplers(samplers);
+
     // A root signature is an array of root parameters.
     D3D12_ROOT_SIGNATURE_DESC root_sig_desc = {};
-    root_sig_desc.NumParameters = 3;
+    root_sig_desc.NumParameters = 4;
     root_sig_desc.pParameters = slot_root_params;
-    root_sig_desc.NumStaticSamplers = 0;
-    root_sig_desc.pStaticSamplers = nullptr;
+    root_sig_desc.NumStaticSamplers = NUM_STATIC_SAMPLERS;
+    root_sig_desc.pStaticSamplers = samplers;
     root_sig_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
@@ -688,17 +830,30 @@ static void
 create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBlob * pixel_shader_code) {
     // -- Create vertex-input-layout Elements
 
-    D3D12_INPUT_ELEMENT_DESC input_desc[2];
+    D3D12_INPUT_ELEMENT_DESC input_desc[3];
     input_desc[0] = {};
     input_desc[0].SemanticName = "POSITION";
+    input_desc[0].SemanticIndex = 0;
     input_desc[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    input_desc[0].InputSlot = 0;
+    input_desc[0].AlignedByteOffset = 0;
     input_desc[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 
     input_desc[1] = {};
     input_desc[1].SemanticName = "NORMAL";
+    input_desc[1].SemanticIndex = 0;
     input_desc[1].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    input_desc[1].InputSlot= 0;
     input_desc[1].AlignedByteOffset = 12; // bc of the position byte-size
     input_desc[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+
+    input_desc[2] = {};
+    input_desc[2].SemanticName = "TEXCOORD";
+    input_desc[2].SemanticIndex = 0;
+    input_desc[2].Format = DXGI_FORMAT_R32G32_FLOAT;
+    input_desc[2].InputSlot = 0;
+    input_desc[2].AlignedByteOffset = 24; // bc of the position and normal
+    input_desc[2].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 
     // -- Create pipeline state object
 
