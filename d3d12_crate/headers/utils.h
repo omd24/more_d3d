@@ -30,8 +30,8 @@ struct Light {
 // -- per object constants
 struct ObjectConstants {
     XMFLOAT4X4 world;
-    //XMFLOAT4   color; /* color change experiment*/
-    float padding[48];  // Padding so the constant buffer is 256-byte aligned
+    XMFLOAT4X4 tex_transform;
+    float padding[32];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(256 == sizeof(ObjectConstants), "Constant buffer size must be 256b aligned");
 // -- per pass constants
@@ -65,6 +65,7 @@ static_assert(1280 == sizeof(PassConstants), "Constant buffer size must be 256b 
 struct Vertex {
     XMFLOAT3 position;
     XMFLOAT3 normal;
+    XMFLOAT2 texc;
 };
 struct GeomVertex {
     XMFLOAT3 Position;
@@ -156,6 +157,8 @@ struct RenderItem {
     // relative to the world space, which defines the position, orientation,
     // and scale of the object in the world.
     XMFLOAT4X4 world;
+
+    XMFLOAT4X4 tex_transform;
 
     // Dirty flag indicating the object data has changed and we need to update the constant buffer.
     // Because we have an object cbuffer for each FrameResource, we have to apply the

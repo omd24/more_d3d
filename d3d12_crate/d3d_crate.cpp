@@ -35,11 +35,11 @@
 #define NUM_STATIC_SAMPLERS     6
 
 #define MAX_RENDERITEM_COUNT    50
-#define OBJ_COUNT               23
-#define MAT_COUNT               4       /* brick, stone, tile, skull */
-#define TEX_COUNT               2       /* woodcrate01, woodcrate02 */
+#define OBJ_COUNT               1
+#define MAT_COUNT               1       /* wooden crate */
+#define TEX_COUNT               1       /* woodcrate01 */
 
-#define GEOM_COUNT              2       /* shapes and skull */
+#define GEOM_COUNT              1       /* box geometry */
 
 enum SUBMESH_INDEX {
     _BOX_ID,
@@ -48,10 +48,7 @@ enum SUBMESH_INDEX {
     _CYLINDER_ID
 };
 enum MAT_INDEX {
-    MAT_BRICK_ID = 0,
-    MAT_STONE_ID = 1,
-    MAT_TILE_ID = 2,
-    MAT_SKULL_ID = 3
+    MAT_WOOD_CRATE = 0,
 };
 enum TEX_INDEX {
     TEX_CRATE01 = 0,
@@ -100,10 +97,14 @@ struct D3DRenderContext {
     IDXGISwapChain3 *               swapchain3;
     IDXGISwapChain *                swapchain;
     ID3D12Device *                  device;
-    ID3D12CommandQueue *            cmd_queue;
     ID3D12RootSignature *           root_signature;
     ID3D12PipelineState *           pso;
+
+
+    ID3D12CommandQueue *            cmd_queue;
+    ID3D12CommandAllocator *        direct_cmd_list_alloc;
     ID3D12GraphicsCommandList *     direct_cmd_list;
+
     UINT                            rtv_descriptor_size;
     UINT                            cbv_srv_uav_descriptor_size;
 
@@ -140,7 +141,7 @@ struct D3DRenderContext {
 #include <memory>
 #include "DDSTextureLoader12.h"
 static void
-create_textures (
+load_textures (
     ID3D12Device * device,
     ID3D12GraphicsCommandList * cmd_list,
     Texture out_textures []
@@ -205,143 +206,42 @@ create_textures (
 }
 static void
 create_materials (Material out_materials []) {
-    strcpy_s(out_materials[MAT_BRICK_ID].name, "brick");
-    out_materials[MAT_BRICK_ID].mat_cbuffer_index = 0;
-    out_materials[MAT_BRICK_ID].diffuse_albedo = XMFLOAT4(0.65f, 0.18f, 0.18f, 1.0f);
-    out_materials[MAT_BRICK_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-    out_materials[MAT_BRICK_ID].roughness = 0.1f;
-    out_materials[MAT_BRICK_ID].mat_transform = Identity4x4();
-
-    strcpy_s(out_materials[MAT_STONE_ID].name, "stone");
-    out_materials[MAT_STONE_ID].mat_cbuffer_index = 1;
-    out_materials[MAT_STONE_ID].diffuse_albedo = XMFLOAT4(Colors::LightSteelBlue);
-    out_materials[MAT_STONE_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-    out_materials[MAT_STONE_ID].roughness = 0.3f;
-    out_materials[MAT_STONE_ID].mat_transform = Identity4x4();
-
-    strcpy_s(out_materials[MAT_TILE_ID].name, "tile");
-    out_materials[MAT_TILE_ID].mat_cbuffer_index = 2;
-    out_materials[MAT_TILE_ID].diffuse_albedo = XMFLOAT4(Colors::LightGray);
-    out_materials[MAT_TILE_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-    out_materials[MAT_TILE_ID].roughness = 0.2f;
-    out_materials[MAT_TILE_ID].mat_transform = Identity4x4();
-
-    strcpy_s(out_materials[MAT_SKULL_ID].name, "skull");
-    out_materials[MAT_SKULL_ID].mat_cbuffer_index = 3;
-    out_materials[MAT_SKULL_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_SKULL_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-    out_materials[MAT_SKULL_ID].roughness = 0.3f;
-    out_materials[MAT_SKULL_ID].mat_transform = Identity4x4();
+    strcpy_s(out_materials[MAT_WOOD_CRATE].name, "wood_crate");
+    out_materials[MAT_WOOD_CRATE].mat_cbuffer_index = 0;
+    out_materials[MAT_WOOD_CRATE].diffuse_srvheap_index = 0;
+    out_materials[MAT_WOOD_CRATE].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_WOOD_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_WOOD_CRATE].roughness = 0.2f;
+    out_materials[MAT_WOOD_CRATE].mat_transform = Identity4x4();
 }
 // NOTE(omid): Don't worry this is expermental!
 #define _BOX_VTX_CNT   24
 #define _BOX_IDX_CNT   36
 
-#define _GRID_VTX_CNT   2400
-#define _GRID_IDX_CNT   13806
-
-#define _SPHERE_VTX_CNT   401
-#define _SPHERE_IDX_CNT   2280
-
-#define _CYLINDER_VTX_CNT   485
-#define _CYLINDER_IDX_CNT   2520
-
-#define _TOTAL_VTX_CNT  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT)
-#define _TOTAL_IDX_CNT  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT)
 static void
 create_shape_geometry (D3DRenderContext * render_ctx) {
 
-    // -- fluffy memory allocation
-    Vertex *    vertices = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
-    uint16_t *  indices = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
-    BYTE *      scratch = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    Vertex *    vertices = (Vertex *)::malloc(sizeof(Vertex) * _BOX_VTX_CNT);
+    uint16_t *  indices = (uint16_t *)::malloc(sizeof(uint16_t) * _BOX_IDX_CNT);
+    BYTE *      scratch = (BYTE *)::malloc(sizeof(GeomVertex) * _BOX_VTX_CNT + sizeof(uint16_t) * _BOX_IDX_CNT);
 
     // box
     UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
-    UINT bsz_id = bsz + sizeof(uint16_t) * _BOX_IDX_CNT;
-    // grid
-    UINT gsz = bsz_id + sizeof(GeomVertex) * _GRID_VTX_CNT;
-    UINT gsz_id = gsz + sizeof(uint16_t) * _GRID_IDX_CNT;
-    // sphere
-    UINT ssz = gsz_id + sizeof(GeomVertex) * _SPHERE_VTX_CNT;
-    UINT ssz_id = ssz + sizeof(uint16_t) * _SPHERE_IDX_CNT;
-    // cylinder
-    UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
-    //UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT; // not used
-
     GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(scratch);
     uint16_t *      box_indices = reinterpret_cast<uint16_t *>(scratch + bsz);
-    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(scratch + bsz_id);
-    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(scratch + gsz);
-    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(scratch + gsz_id);
-    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(scratch + ssz);
-    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(scratch + ssz_id);
-    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(scratch + csz);
 
-    create_box(1.5f, 0.5f, 1.5f, box_vertices, box_indices);
-    create_grid(20.0f, 30.0f, 60, 40, grid_vertices, grid_indices);
-    create_sphere(0.5f, sphere_vertices, sphere_indices);
-    create_cylinder(0.5f, 0.3f, 3.0f, cylinder_vertices, cylinder_indices);
+    create_box(1.0f, 1.0f, 1.0f, box_vertices, box_indices);
 
-    // We are concatenating all the geometry into one big vertex/index buffer.  So
-    // define the regions in the buffer each submesh covers.
-
-    // Cache the vertex offsets to each object in the concatenated vertex buffer.
-    UINT box_vertex_offset = 0;
-    UINT grid_vertex_offset = _BOX_VTX_CNT;
-    UINT sphere_vertex_offset = grid_vertex_offset + _GRID_VTX_CNT;
-    UINT cylinder_vertex_offset = sphere_vertex_offset + _SPHERE_VTX_CNT;
-
-    // Cache the starting index for each object in the concatenated index buffer.
-    UINT box_index_offset = 0;
-    UINT grid_index_offset = _BOX_IDX_CNT;
-    UINT sphere_index_offset = grid_index_offset + _GRID_IDX_CNT;
-    UINT cylinder_index_offsett = sphere_index_offset + _SPHERE_IDX_CNT;
-
-    // Define the SubmeshGeometry that cover different 
-    // regions of the vertex/index buffers.
     SubmeshGeometry box_submesh = {};
     box_submesh.index_count = _BOX_IDX_CNT;
-    box_submesh.start_index_location = box_index_offset;
-    box_submesh.base_vertex_location = box_vertex_offset;
-
-    SubmeshGeometry grid_submesh = {};
-    grid_submesh.index_count = _GRID_IDX_CNT;
-    grid_submesh.start_index_location = grid_index_offset;
-    grid_submesh.base_vertex_location = grid_vertex_offset;
-
-    SubmeshGeometry sphere_submesh = {};
-    sphere_submesh.index_count = _SPHERE_IDX_CNT;
-    sphere_submesh.start_index_location = sphere_index_offset;
-    sphere_submesh.base_vertex_location = sphere_vertex_offset;
-
-    SubmeshGeometry cylinder_submesh = {};
-    cylinder_submesh.index_count = _CYLINDER_IDX_CNT;
-    cylinder_submesh.start_index_location = cylinder_index_offsett;
-    cylinder_submesh.base_vertex_location = cylinder_vertex_offset;
-
-    // Extract the vertex elements we are interested in and pack the
-    // vertices of all the meshes into one vertex buffer.
+    box_submesh.start_index_location = 0;
+    box_submesh.base_vertex_location = 0;
 
     UINT k = 0;
     for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
         vertices[k].position = box_vertices[i].Position;
         vertices[k].normal = box_vertices[i].Normal;
-    }
-
-    for (size_t i = 0; i < _GRID_VTX_CNT; ++i, ++k) {
-        vertices[k].position = grid_vertices[i].Position;
-        vertices[k].normal = grid_vertices[i].Normal;
-    }
-
-    for (size_t i = 0; i < _SPHERE_VTX_CNT; ++i, ++k) {
-        vertices[k].position = sphere_vertices[i].Position;
-        vertices[k].normal = sphere_vertices[i].Normal;
-    }
-
-    for (size_t i = 0; i < _CYLINDER_VTX_CNT; ++i, ++k) {
-        vertices[k].position = cylinder_vertices[i].Position;
-        vertices[k].normal = cylinder_vertices[i].Normal;
+        vertices[k].texc = box_vertices[i].TexC;
     }
 
     // -- pack indices
@@ -350,20 +250,8 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
         indices[k] = box_indices[i];
     }
 
-    for (size_t i = 0; i < _GRID_IDX_CNT; ++i, ++k) {
-        indices[k] = grid_indices[i];
-    }
-
-    for (size_t i = 0; i < _SPHERE_IDX_CNT; ++i, ++k) {
-        indices[k] = sphere_indices[i];
-    }
-
-    for (size_t i = 0; i < _CYLINDER_IDX_CNT; ++i, ++k) {
-        indices[k] = cylinder_indices[i];
-    }
-
-    UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
-    UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
+    UINT vb_byte_size = _BOX_VTX_CNT * sizeof(Vertex);
+    UINT ib_byte_size = _BOX_IDX_CNT * sizeof(uint16_t);
 
     // -- Fill out render_ctx geom[0] (shapes)
     D3DCreateBlob(vb_byte_size, &render_ctx->geom[0].vb_cpu);
@@ -384,12 +272,6 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
 
     render_ctx->geom[0].submesh_names[_BOX_ID] = "box";
     render_ctx->geom[0].submesh_geoms[_BOX_ID] = box_submesh;
-    render_ctx->geom[0].submesh_names[_GRID_ID] = "grid";
-    render_ctx->geom[0].submesh_geoms[_GRID_ID] = grid_submesh;
-    render_ctx->geom[0].submesh_names[_SPHERE_ID] = "shpere";
-    render_ctx->geom[0].submesh_geoms[_SPHERE_ID] = sphere_submesh;
-    render_ctx->geom[0].submesh_names[_CYLINDER_ID] = "cylinder";
-    render_ctx->geom[0].submesh_geoms[_CYLINDER_ID] = cylinder_submesh;
 
     // -- cleanup
     free(scratch);
@@ -397,213 +279,19 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
     free(vertices);
 }
 static void
-create_skull_geometry (D3DRenderContext * render_ctx) {
+create_render_items (RenderItem render_items [], MeshGeometry * shapes_geom, Material materials []) {
+    render_items[0].obj_cbuffer_index = 0;
+    render_items[0].geometry = shapes_geom;
+    render_items[0].mat = &materials[MAT_WOOD_CRATE];
+    render_items[0].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    render_items[0].index_count = shapes_geom->submesh_geoms[_BOX_ID].index_count;
+    render_items[0].start_index_loc = shapes_geom->submesh_geoms[_BOX_ID].start_index_location;
+    render_items[0].base_vertex_loc = shapes_geom->submesh_geoms[_BOX_ID].base_vertex_location;
 
-#pragma region Read_Data_File
-    FILE * f = nullptr;
-    errno_t err = fopen_s(&f, "./models/skull.txt", "r");
-    if (0 == f || err != 0) {
-        printf("could not open file\n");
-        return;
-    }
-    char linebuf[100];
-    int cnt = 0;
-    unsigned vcount = 0;
-    unsigned tcount = 0;
-    // -- read 1st line
-    if (fgets(linebuf, sizeof(linebuf), f))
-        cnt = sscanf_s(linebuf, "%*s %d", &vcount);
-    if (cnt != 1) {
-        printf("read error\n");
-        printf("read line: %s\n", linebuf);
-        return;
-    }
-    // -- read 2nd line
-    if (fgets(linebuf, sizeof(linebuf), f))
-        cnt = sscanf_s(linebuf, "%*s %d", &tcount);
-    if (cnt != 1) {
-        printf("read error\n");
-        printf("read line: %s\n", linebuf);
-        return;
-    }
-    // -- skip two lines
-    fgets(linebuf, sizeof(linebuf), f);
-    fgets(linebuf, sizeof(linebuf), f);
-    // -- read vertices
-    Vertex * vertices = (Vertex *)calloc(vcount, sizeof(Vertex));
-    for (unsigned i = 0; i < vcount; i++) {
-        fgets(linebuf, sizeof(linebuf), f);
-        cnt = sscanf_s(
-            linebuf, "%f %f %f %f %f %f",
-            &vertices[i].position.x, &vertices[i].position.y, &vertices[i].position.z,
-            &vertices[i].normal.x, &vertices[i].normal.y, &vertices[i].normal.z
-        );
-        if (cnt != 6) {
-            printf("read error\n");
-            printf("read line: %s\n", linebuf);
-            return;
-        }
-    }
-    // -- skip three lines
-    fgets(linebuf, sizeof(linebuf), f);
-    fgets(linebuf, sizeof(linebuf), f);
-    fgets(linebuf, sizeof(linebuf), f);
-    // -- read indices
-    uint32_t * indices = (uint32_t *)calloc(tcount * 3, sizeof(uint32_t));
-    for (unsigned i = 0; i < tcount; i++) {
-        fgets(linebuf, sizeof(linebuf), f);
-        cnt = sscanf_s(
-            linebuf, "%d %d %d",
-            &indices[i * 3 + 0], &indices[i * 3 + 1], &indices[i * 3 + 2]
-        );
-        if (cnt != 3) {
-            printf("read error\n");
-            printf("read line: %s\n", linebuf);
-            return;
-        }
-    }
-
-    // -- remember to free heap-allocated memory
-    /*
-    free(vertices);
-    free(indices);
-    */
-    fclose(f);
-#pragma endregion   Read_Data_File
-
-    UINT vb_byte_size = vcount * sizeof(Vertex);
-    UINT ib_byte_size = (tcount * 3) * sizeof(uint32_t);
-
-    // -- Fill out render_ctx geom[1] (skull)
-    D3DCreateBlob(vb_byte_size, &render_ctx->geom[1].vb_cpu);
-    CopyMemory(render_ctx->geom[1].vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
-
-    D3DCreateBlob(ib_byte_size, &render_ctx->geom[1].ib_cpu);
-    CopyMemory(render_ctx->geom[1].ib_cpu->GetBufferPointer(), indices, ib_byte_size);
-
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom[1].vb_uploader, &render_ctx->geom[1].vb_gpu);
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom[1].ib_uploader, &render_ctx->geom[1].ib_gpu);
-
-    render_ctx->geom[1].vb_byte_stide = sizeof(Vertex);
-    render_ctx->geom[1].vb_byte_size = vb_byte_size;
-    render_ctx->geom[1].ib_byte_size = ib_byte_size;
-    render_ctx->geom[1].index_format = DXGI_FORMAT_R32_UINT;
-
-    SubmeshGeometry submesh = {};
-    submesh.index_count = tcount * 3;
-    submesh.start_index_location = 0;
-    submesh.base_vertex_location = 0;
-
-    render_ctx->geom[1].submesh_names[0] = "skull";
-    render_ctx->geom[1].submesh_geoms[0] = submesh;
-
-    // -- cleanup
-    free(vertices);
-    free(indices);
-}
-static void
-create_render_items (RenderItem render_items [], MeshGeometry * shapes_geom, MeshGeometry * skull_geom, Material materials []) {
-    // NOTE(omid): RenderItems elements 
-    /*
-        0: box
-        1: grid
-        2: skull
-        3-23: cylinders and spheres
-    */
-
-    UINT _curr = 0;
-
-    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
-    render_items[_curr].obj_cbuffer_index = _curr;
-    render_items[_curr].geometry = shapes_geom;
-    render_items[_curr].mat = &materials[MAT_STONE_ID];
-    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_curr].index_count = shapes_geom->submesh_geoms[_BOX_ID].index_count;
-    render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_BOX_ID].start_index_location;
-    render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_BOX_ID].base_vertex_location;
-    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-    ++_curr;
-
-    render_items[_curr].world = Identity4x4();
-    render_items[_curr].obj_cbuffer_index = _curr;
-    render_items[_curr].geometry = shapes_geom;
-    render_items[_curr].mat = &materials[MAT_TILE_ID];
-    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_curr].index_count = shapes_geom->submesh_geoms[_GRID_ID].index_count;
-    render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_GRID_ID].start_index_location;
-    render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_GRID_ID].base_vertex_location;
-    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-    ++_curr;
-
-    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(0.5f, 0.5f, 0.5f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
-    render_items[_curr].obj_cbuffer_index = _curr;
-    render_items[_curr].geometry = skull_geom;
-    render_items[_curr].mat = &materials[MAT_SKULL_ID];
-    render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[_curr].index_count = skull_geom->submesh_geoms[0].index_count;
-    render_items[_curr].start_index_loc = skull_geom->submesh_geoms[0].start_index_location;
-    render_items[_curr].base_vertex_loc = skull_geom->submesh_geoms[0].base_vertex_location;
-    render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-    ++_curr;
-
-    for (int i = 0; i < 5; ++i) {
-        XMMATRIX left_cylinder_world = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i * 5.0f);
-        XMMATRIX right_cylinder_world = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i * 5.0f);
-
-        XMMATRIX left_sphere_world = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
-        XMMATRIX right_sphere_world = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
-
-        XMStoreFloat4x4(&render_items[_curr].world, right_cylinder_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = shapes_geom;
-        render_items[_curr].mat = &materials[MAT_BRICK_ID];
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = shapes_geom->submesh_geoms[_CYLINDER_ID].index_count;
-        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-
-        XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = shapes_geom;
-        render_items[_curr].mat = &materials[MAT_BRICK_ID];
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = shapes_geom->submesh_geoms[_CYLINDER_ID].index_count;
-        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_CYLINDER_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-
-        XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = shapes_geom;
-        render_items[_curr].mat = &materials[MAT_STONE_ID];
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = shapes_geom->submesh_geoms[_SPHERE_ID].index_count;
-        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_SPHERE_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-
-        XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
-        render_items[_curr].obj_cbuffer_index = _curr;
-        render_items[_curr].geometry = shapes_geom;
-        render_items[_curr].mat = &materials[MAT_STONE_ID];
-        render_items[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        render_items[_curr].index_count = shapes_geom->submesh_geoms[_SPHERE_ID].index_count;
-        render_items[_curr].start_index_loc = shapes_geom->submesh_geoms[_SPHERE_ID].start_index_location;
-        render_items[_curr].base_vertex_loc = shapes_geom->submesh_geoms[_SPHERE_ID].base_vertex_location;
-        render_items[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-        ++_curr;
-    }
+    render_items[0].world = Identity4x4();
+    render_items[0].tex_transform = Identity4x4();
+    render_items[0].n_frames_dirty = NUM_QUEUING_FRAMES;
+    render_items[0].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
 }
 // -- indexed drawing
 static void
@@ -612,6 +300,7 @@ draw_render_items (
     ID3D12Resource * object_cbuffer,
     ID3D12Resource * mat_cbuffer,
     UINT64 descriptor_increment_size,
+    ID3D12DescriptorHeap * srv_heap,
     RenderItem render_items [],
     UINT current_frame_index
 ) {
@@ -624,14 +313,18 @@ draw_render_items (
         cmd_list->IASetIndexBuffer(&ibv);
         cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
 
+        D3D12_GPU_DESCRIPTOR_HANDLE tex = srv_heap->GetGPUDescriptorHandleForHeapStart();
+        tex.ptr += descriptor_increment_size * render_items[i].mat->diffuse_srvheap_index;
+
         D3D12_GPU_VIRTUAL_ADDRESS objcb_address = object_cbuffer->GetGPUVirtualAddress();
         objcb_address += (UINT64)render_items[i].obj_cbuffer_index * objcb_byte_size;
 
         D3D12_GPU_VIRTUAL_ADDRESS matcb_address = mat_cbuffer->GetGPUVirtualAddress();
         matcb_address += (UINT64)render_items[i].mat->mat_cbuffer_index * matcb_byte_size;
 
-        cmd_list->SetGraphicsRootConstantBufferView(0, objcb_address);
-        cmd_list->SetGraphicsRootConstantBufferView(1, matcb_address);
+        cmd_list->SetGraphicsRootDescriptorTable(0, tex);
+        cmd_list->SetGraphicsRootConstantBufferView(1, objcb_address);
+        cmd_list->SetGraphicsRootConstantBufferView(3, matcb_address);
 
         cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
     }
@@ -725,52 +418,52 @@ get_static_samplers (D3D12_STATIC_SAMPLER_DESC out_samplers []) {
     out_samplers[SAMPLER_LINEAR_WRAP].RegisterSpace = 0;
 
     // 3: LinearClamp
-    out_samplers[SAMPLER_POINT_WRAP] = {};
-    out_samplers[SAMPLER_POINT_WRAP].ShaderRegister = 3;
-    out_samplers[SAMPLER_POINT_WRAP].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    out_samplers[SAMPLER_POINT_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    out_samplers[SAMPLER_POINT_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    out_samplers[SAMPLER_POINT_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    out_samplers[SAMPLER_POINT_WRAP].MipLODBias = 0;
-    out_samplers[SAMPLER_POINT_WRAP].MaxAnisotropy = 16;
-    out_samplers[SAMPLER_POINT_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-    out_samplers[SAMPLER_POINT_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
-    out_samplers[SAMPLER_POINT_WRAP].MinLOD = 0.f;
-    out_samplers[SAMPLER_POINT_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
-    out_samplers[SAMPLER_POINT_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    out_samplers[SAMPLER_POINT_WRAP].RegisterSpace = 0;
+    out_samplers[SAMPLER_LINEAR_CLAMP] = {};
+    out_samplers[SAMPLER_LINEAR_CLAMP].ShaderRegister = 3;
+    out_samplers[SAMPLER_LINEAR_CLAMP].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    out_samplers[SAMPLER_LINEAR_CLAMP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_LINEAR_CLAMP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_LINEAR_CLAMP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_LINEAR_CLAMP].MipLODBias = 0;
+    out_samplers[SAMPLER_LINEAR_CLAMP].MaxAnisotropy = 16;
+    out_samplers[SAMPLER_LINEAR_CLAMP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_LINEAR_CLAMP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_LINEAR_CLAMP].MinLOD = 0.f;
+    out_samplers[SAMPLER_LINEAR_CLAMP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_LINEAR_CLAMP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_LINEAR_CLAMP].RegisterSpace = 0;
 
     // 4: AnisotropicWrap
-    out_samplers[SAMPLER_POINT_WRAP] = {};
-    out_samplers[SAMPLER_POINT_WRAP].ShaderRegister = 4;
-    out_samplers[SAMPLER_POINT_WRAP].Filter = D3D12_FILTER_ANISOTROPIC;
-    out_samplers[SAMPLER_POINT_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    out_samplers[SAMPLER_POINT_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    out_samplers[SAMPLER_POINT_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    out_samplers[SAMPLER_POINT_WRAP].MipLODBias = 0.0f;
-    out_samplers[SAMPLER_POINT_WRAP].MaxAnisotropy = 8;
-    out_samplers[SAMPLER_POINT_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-    out_samplers[SAMPLER_POINT_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
-    out_samplers[SAMPLER_POINT_WRAP].MinLOD = 0.f;
-    out_samplers[SAMPLER_POINT_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
-    out_samplers[SAMPLER_POINT_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    out_samplers[SAMPLER_POINT_WRAP].RegisterSpace = 0;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP] = {};
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].ShaderRegister = 4;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].Filter = D3D12_FILTER_ANISOTROPIC;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].MipLODBias = 0.0f;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].MaxAnisotropy = 8;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].MinLOD = 0.f;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_ANISOTROPIC_WRAP].RegisterSpace = 0;
 
     // 5: AnisotropicClamp
-    out_samplers[SAMPLER_POINT_WRAP] = {};
-    out_samplers[SAMPLER_POINT_WRAP].ShaderRegister = 5;
-    out_samplers[SAMPLER_POINT_WRAP].Filter = D3D12_FILTER_ANISOTROPIC;
-    out_samplers[SAMPLER_POINT_WRAP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    out_samplers[SAMPLER_POINT_WRAP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    out_samplers[SAMPLER_POINT_WRAP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    out_samplers[SAMPLER_POINT_WRAP].MipLODBias = 0.0f;
-    out_samplers[SAMPLER_POINT_WRAP].MaxAnisotropy = 8;
-    out_samplers[SAMPLER_POINT_WRAP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-    out_samplers[SAMPLER_POINT_WRAP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
-    out_samplers[SAMPLER_POINT_WRAP].MinLOD = 0.f;
-    out_samplers[SAMPLER_POINT_WRAP].MaxLOD = D3D12_FLOAT32_MAX;
-    out_samplers[SAMPLER_POINT_WRAP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    out_samplers[SAMPLER_POINT_WRAP].RegisterSpace = 0;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP] = {};
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].ShaderRegister = 5;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].Filter = D3D12_FILTER_ANISOTROPIC;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].MipLODBias = 0.0f;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].MaxAnisotropy = 8;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].MinLOD = 0.f;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].MaxLOD = D3D12_FLOAT32_MAX;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out_samplers[SAMPLER_ANISOTROPIC_CLAMP].RegisterSpace = 0;
 }
 static void
 create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
@@ -815,7 +508,6 @@ create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signat
     root_sig_desc.pStaticSamplers = samplers;
     root_sig_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-    // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     ID3DBlob * serialized_root_sig = nullptr;
     ID3DBlob * error_blob = nullptr;
     D3D12SerializeRootSignature(&root_sig_desc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized_root_sig, &error_blob);
@@ -979,22 +671,23 @@ static void
 update_obj_cbuffers (D3DRenderContext * render_ctx) {
     UINT frame_index = render_ctx->frame_index;
     UINT cbuffer_size = sizeof(ObjectConstants);
-    for (unsigned i = 0; i < OBJ_COUNT; i++) {
-        UINT obj_index = render_ctx->render_items[i].obj_cbuffer_index;
         // Only update the cbuffer data if the constants have changed.  
         // This needs to be tracked per frame resource.
-        if (render_ctx->render_items[i].n_frames_dirty > 0) {
-            XMMATRIX world = XMLoadFloat4x4(&render_ctx->render_items[i].world);
-            ObjectConstants obj_cbuffer = {};
-            XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
+    if (render_ctx->render_items[0].n_frames_dirty > 0) {
+        XMMATRIX world = XMLoadFloat4x4(&render_ctx->render_items[0].world);
+        XMMATRIX tex_transform = XMLoadFloat4x4(&render_ctx->render_items[0].tex_transform);
 
-            uint8_t * obj_ptr = render_ctx->frame_resources[frame_index].obj_cb_data_ptr + ((UINT64)obj_index * cbuffer_size);
-            memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
+        ObjectConstants obj_cbuffer = {};
+        XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
+        XMStoreFloat4x4(&obj_cbuffer.tex_transform, XMMatrixTranspose(tex_transform));
 
-            // Next FrameResource need to be updated too.
-            render_ctx->render_items[i].n_frames_dirty--;
-        }
+        uint8_t * obj_ptr = render_ctx->frame_resources[frame_index].obj_cb_data_ptr;
+        memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
+
+        // Next FrameResource need to be updated too.
+        render_ctx->render_items[0].n_frames_dirty--;
     }
+
 }
 static void
 update_mat_cbuffers (D3DRenderContext * render_ctx) {
@@ -1160,6 +853,9 @@ draw_main (D3DRenderContext * render_ctx) {
     render_ctx->direct_cmd_list->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, true, &dsv_handle);
 
+    ID3D12DescriptorHeap* descriptor_heaps [] = {render_ctx->srv_heap};
+    render_ctx->direct_cmd_list->SetDescriptorHeaps(_countof(descriptor_heaps), descriptor_heaps);
+
     render_ctx->direct_cmd_list->SetGraphicsRootSignature(render_ctx->root_signature);
 
     // Bind per-pass constant buffer.  We only need to do this once per-pass.
@@ -1177,6 +873,7 @@ draw_main (D3DRenderContext * render_ctx) {
         render_ctx->frame_resources[frame_index].obj_cb,
         render_ctx->frame_resources[frame_index].mat_cb,
         render_ctx->cbv_srv_uav_descriptor_size,
+        render_ctx->srv_heap,
         render_ctx->render_items, frame_index
     );
 
@@ -1357,12 +1054,33 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // store CBV_SRV_UAV descriptor increment size for later
     render_ctx->cbv_srv_uav_descriptor_size = render_ctx->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    // Create Command Queues
+#pragma region Create Command Objects
+    // Create Command Queue
     D3D12_COMMAND_QUEUE_DESC cmd_q_desc = {};
     cmd_q_desc.Type = D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT;
     cmd_q_desc.Flags = D3D12_COMMAND_QUEUE_FLAGS::D3D12_COMMAND_QUEUE_FLAG_NONE;
-    res = render_ctx->device->CreateCommandQueue(&cmd_q_desc, IID_PPV_ARGS(&render_ctx->cmd_queue));
-    CHECK_AND_FAIL(res);
+    render_ctx->device->CreateCommandQueue(&cmd_q_desc, IID_PPV_ARGS(&render_ctx->cmd_queue));
+
+    // Create Command Allocator
+    render_ctx->device->CreateCommandAllocator(
+        D3D12_COMMAND_LIST_TYPE_DIRECT,
+        IID_PPV_ARGS(&render_ctx->direct_cmd_list_alloc)
+    );
+
+    // Create Command List
+    if (render_ctx->direct_cmd_list_alloc) {
+        render_ctx->device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            render_ctx->direct_cmd_list_alloc,
+            render_ctx->pso, IID_PPV_ARGS(&render_ctx->direct_cmd_list)
+        );
+
+        // Reset the command list to prep for initialization commands.
+        // NOTE(omid): Command list needs to be closed before calling Reset.
+        render_ctx->direct_cmd_list->Close();
+        render_ctx->direct_cmd_list->Reset(render_ctx->direct_cmd_list_alloc, nullptr);
+    }
+#pragma endregion
 
     DXGI_MODE_DESC backbuffer_desc = {};
     backbuffer_desc.Width = global_scene_ctx.width;
@@ -1384,15 +1102,16 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     swapchain_desc.SwapEffect = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapchain_desc.Flags = DXGI_SWAP_CHAIN_FLAG::DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
-    res = dxgi_factory->CreateSwapChain(render_ctx->cmd_queue, &swapchain_desc, &render_ctx->swapchain);
-    CHECK_AND_FAIL(res);
+    if (render_ctx->cmd_queue)
+        dxgi_factory->CreateSwapChain(render_ctx->cmd_queue, &swapchain_desc, &render_ctx->swapchain);
 
     // -- to get current backbuffer index
     CHECK_AND_FAIL(render_ctx->swapchain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&render_ctx->swapchain3));
     render_ctx->backbuffer_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
 
-    // ========================================================================================================
+// ========================================================================================================
 
+    load_textures(render_ctx->device, render_ctx->direct_cmd_list, render_ctx->textures);
     create_descriptor_heaps(render_ctx);
 
 #pragma region Dsv_Creation
@@ -1542,23 +1261,15 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma region PSO_Creation
     create_pso(render_ctx, vertex_shader_code, pixel_shader_code);
-
-    // Create command list
-    ID3D12CommandAllocator * current_alloc = render_ctx->frame_resources[render_ctx->frame_index].cmd_list_alloc;
-    if (current_alloc) {
-        render_ctx->device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, current_alloc, render_ctx->pso, IID_PPV_ARGS(&render_ctx->direct_cmd_list));
-    }
 #pragma endregion PSO_Creation
 
 #pragma region Shapes_And_Renderitem_Creation
 
     create_shape_geometry(render_ctx);
-    create_skull_geometry(render_ctx);
     create_materials(render_ctx->materials);
     create_render_items(
         render_ctx->render_items,
-        &render_ctx->geom[0],       // shapes
-        &render_ctx->geom[1],       // skull
+        &render_ctx->geom[0],
         render_ctx->materials
     );
 
@@ -1652,7 +1363,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->geom[i].vb_gpu->Release();
     }
 
-    render_ctx->direct_cmd_list->Release();
     render_ctx->pso->Release();
 
     pixel_shader_code->Release();
@@ -1667,11 +1377,19 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     render_ctx->dsv_heap->Release();
     render_ctx->rtv_heap->Release();
+    render_ctx->srv_heap->Release();
 
     render_ctx->depth_stencil_buffer->Release();
 
+    for (unsigned i = 0; i < TEX_COUNT; i++) {
+        render_ctx->textures[i].upload_heap->Release();
+        render_ctx->textures[i].resource->Release();
+    }
+
     render_ctx->swapchain3->Release();
     render_ctx->swapchain->Release();
+    render_ctx->direct_cmd_list->Release();
+    render_ctx->direct_cmd_list_alloc->Release();
     render_ctx->cmd_queue->Release();
     render_ctx->device->Release();
     dxgi_factory->Release();
