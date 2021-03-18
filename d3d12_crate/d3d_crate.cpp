@@ -27,8 +27,6 @@
 #include "headers/utils.h"
 #include "headers/game_timer.h"
 
-//#include <time.h> /* for srand */
-
 // TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)
 #define NUM_BACKBUFFERS         2
 #define NUM_QUEUING_FRAMES      3
@@ -136,7 +134,7 @@ struct D3DRenderContext {
     Texture                         textures[TEX_COUNT];
 };
 
-#pragma region replace this with c-style code
+#if 0       // C++ version using std::vector, std::unique_ptr
 #include <vector>
 #include <memory>
 #include "DDSTextureLoader12.h"
@@ -202,8 +200,80 @@ load_textures (
         0, 0, static_cast<UINT>(subresources.size()), subresources.data()
     );
     cmd_list->ResourceBarrier(1, &barrier);
-#pragma endregion
 }
+#else       // C-style version using pointers
+#include "dds_loader.h"
+static void
+load_textures (
+    ID3D12Device * device,
+    ID3D12GraphicsCommandList * cmd_list,
+    Texture out_textures []
+) {
+    wchar_t const * tex_path = L"../Textures/WoodCrate02.dds";
+    strcpy_s(out_textures[TEX_CRATE01].name, "woodcrate01");
+    wcscpy_s(out_textures[TEX_CRATE01].filename, tex_path);
+
+    uint8_t * ddsData;
+    D3D12_SUBRESOURCE_DATA * subresources;
+    UINT n_subresources = 0;
+
+    LoadDDSTextureFromFile(device, tex_path, &out_textures[TEX_CRATE01].resource, &ddsData, &subresources, &n_subresources);
+
+    UINT64 upload_buffer_size = get_required_intermediate_size(out_textures[TEX_CRATE01].resource, 0,
+                                                               n_subresources);
+
+   // Create the GPU upload buffer.
+    D3D12_HEAP_PROPERTIES heap_props = {};
+    heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    heap_props.CreationNodeMask = 1;
+    heap_props.VisibleNodeMask = 1;
+
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Alignment = 0;
+    desc.Width = upload_buffer_size;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    device->CreateCommittedResource(
+        &heap_props,
+        D3D12_HEAP_FLAG_NONE,
+        &desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&out_textures[TEX_CRATE01].upload_heap)
+    );
+
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = out_textures[TEX_CRATE01].resource;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+    // Use Heap-allocating UpdateSubresources implementation for variable number of subresources (which is the case for textures).
+    update_subresources_heap(
+        cmd_list, out_textures[TEX_CRATE01].resource, out_textures[TEX_CRATE01].upload_heap,
+        0, 0, n_subresources, subresources
+    );
+    cmd_list->ResourceBarrier(1, &barrier);
+
+    ::free(subresources);
+    ::free(ddsData);
+}
+#pragma endregion
+
+#endif // 0
+
 static void
 create_materials (Material out_materials []) {
     strcpy_s(out_materials[MAT_WOOD_CRATE].name, "wood_crate");
