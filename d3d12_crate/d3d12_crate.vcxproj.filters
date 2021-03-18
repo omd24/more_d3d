@@ -48,11 +48,6 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="models\skull.txt">
-      <Filter>Resource Files</Filter>
-    </Text>
-  </ItemGroup>
-  <ItemGroup>
     <Image Include="..\Textures\WoodCrate01.dds">
       <Filter>Resource Files</Filter>
     </Image>

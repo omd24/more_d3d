@@ -146,7 +146,7 @@ load_textures (
     ID3D12GraphicsCommandList * cmd_list,
     Texture out_textures []
 ) {
-    wchar_t const * tex_path = L"../Textures/WoodCrate01.dds";
+    wchar_t const * tex_path = L"../Textures/WoodCrate02.dds";
     strcpy_s(out_textures[TEX_CRATE01].name, "woodcrate01");
     wcscpy_s(out_textures[TEX_CRATE01].filename, tex_path);
 
@@ -637,7 +637,7 @@ handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         scene_ctx->phi += dy;
 
         // clamp phi
-        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, DirectX::XM_PI - 0.1f);
+        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, XM_PI - 0.1f);
     } else if ((wParam & MK_RBUTTON) != 0) {
         // make each pixel correspond to a 0.2 unit in scene
         float dx = 0.05f * (float)(x - scene_ctx->mouse.x);
@@ -647,7 +647,7 @@ handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         scene_ctx->radius += dx - dy;
 
         // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 3.0f, 20.0f);
     }
     scene_ctx->mouse.x = x;
     scene_ctx->mouse.y = y;
@@ -704,11 +704,12 @@ update_mat_cbuffers (D3DRenderContext * render_ctx) {
             mat_constants.diffuse_albedo = render_ctx->materials[i].diffuse_albedo;
             mat_constants.fresnel_r0 = render_ctx->materials[i].fresnel_r0;
             mat_constants.roughness = render_ctx->materials[i].roughness;
+            XMStoreFloat4x4(&mat_constants.mat_transform, XMMatrixTranspose(mat_transform));
 
             uint8_t * mat_ptr = render_ctx->frame_resources[frame_index].mat_cb_data_ptr + ((UINT64)mat->mat_cbuffer_index * cbuffer_size);
             memcpy(mat_ptr, &mat_constants, cbuffer_size);
 
-                    // Next FrameResource need to be updated too.
+            // Next FrameResource need to be updated too.
             mat->n_frames_dirty--;
         }
     }
@@ -862,12 +863,6 @@ draw_main (D3DRenderContext * render_ctx) {
     ID3D12Resource * pass_cb = render_ctx->frame_resources[frame_index].pass_cb;
     render_ctx->direct_cmd_list->SetGraphicsRootConstantBufferView(2, pass_cb->GetGPUVirtualAddress());
 
-    /*
-        0: per_obj_cbuffer
-        1: material_cbuffer
-        2: per_pass_cbuffer
-    */
-
     draw_render_items(
         render_ctx->direct_cmd_list,
         render_ctx->frame_resources[frame_index].obj_cb,
@@ -1010,9 +1005,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // ========================================================================================================
 #pragma region Initialization
     global_scene_ctx = {.width = 1280, .height = 720};
-    global_scene_ctx.theta = 1.5f * XM_PI;
-    global_scene_ctx.phi = XM_PIDIV2 - 0.1f;
-    global_scene_ctx.radius = 15.0f;
+    global_scene_ctx.theta = 1.3f * XM_PI;
+    global_scene_ctx.phi = 0.4f * XM_PI;
+    global_scene_ctx.radius = 2.5f;
     global_scene_ctx.sun_theta = 1.25f * XM_PI;
     global_scene_ctx.sun_phi = XM_PIDIV4;
     global_scene_ctx.aspect_ratio = (float)global_scene_ctx.width / (float)global_scene_ctx.height;
@@ -1327,7 +1322,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_pass_cbuffers(render_ctx, &global_timer);
         update_mat_cbuffers(render_ctx);
         update_obj_cbuffers(render_ctx);
-     /*   update_waves_vb(render_ctx, &global_timer);*/
 
         // OnRender()
         CHECK_AND_FAIL(draw_main(render_ctx));
