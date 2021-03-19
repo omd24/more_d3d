@@ -1064,7 +1064,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     HWND hwnd = CreateWindowExA(
         0,                                      // Optional window styles.
         wc.lpszClassName,                       // Window class
-        "3D waves Lighting app",                        // Window title
+        "3D Skull Lighting app",                        // Window title
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,       // Window style
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
