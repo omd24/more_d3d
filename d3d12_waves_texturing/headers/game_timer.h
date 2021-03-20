@@ -1,6 +1,8 @@
 #pragma once
 #include "common.h"
 
+// TODO(omid): Separate timer .h/.cpp and prevent direct member access.
+
 struct GameTimer {
     float sec_per_count;
     float delta_time;

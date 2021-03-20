@@ -11,7 +11,12 @@
 #include "light_utils.hlsl"
 
 Texture2D global_diffuse_map : register(t0);
-SamplerState global_sam_linear : register(s0);
+SamplerState global_sam_point_wrap : register(s0);
+SamplerState global_sam_point_clamp : register(s1);
+SamplerState global_sam_linear_wrap : register(s2);
+SamplerState global_sam_linear_clamp : register(s3);
+SamplerState global_sam_anisotropic_wrap : register(s4);
+SamplerState global_sam_anisotropic_clamp : register(s5);
 
 cbuffer PerObjectConstantBuffer : register(b0) {
     float4x4 global_world;
@@ -81,7 +86,7 @@ VertexShader_Main (VertexShaderInput vin) {
 float4
 PixelShader_Main (VertexShaderOutput pin) : SV_Target {
     float4 diffuse_albedo =
-        global_diffuse_map.Sample(global_sam_linear, pin.texc) * global_diffuse_albedo;
+        global_diffuse_map.Sample(global_sam_anisotropic_wrap, pin.texc) * global_diffuse_albedo;
 
     // interpolations of normal can unnormalize it so renormalize!
     pin.normal_world = normalize(pin.normal_world);

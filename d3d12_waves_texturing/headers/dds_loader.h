@@ -1100,9 +1100,9 @@ GetAlphaMode (const DDS_HEADER * header) {
     if (header->ddspf.flags & DDS_FOURCC) {
         if (MAKEFOURCC('D', 'X', '1', '0') == header->ddspf.fourCC) {
             auto d3d10ext = reinterpret_cast<const DDS_HEADER_DXT10*>(reinterpret_cast<const uint8_t*>(header) + sizeof(DDS_HEADER));
-#pragma warning (disable: 28182)
+#pragma warning (disable: 26812)
             auto mode = static_cast<DDS_ALPHA_MODE>(d3d10ext->miscFlags2 & DDS_MISC_FLAGS2_ALPHA_MODE_MASK);
-#pragma warning (default: 28182)
+#pragma warning (default: 26812)
             switch (mode) {
             case DDS_ALPHA_MODE_STRAIGHT:
             case DDS_ALPHA_MODE_PREMULTIPLIED:
