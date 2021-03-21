@@ -389,16 +389,16 @@ create_land_geometry (D3DRenderContext * render_ctx) {
 static void
 create_water_geometry (D3DRenderContext * render_ctx) {
     Vertex * vertices = (Vertex *)::malloc(sizeof(Vertex) * _WAVE_VTX_CNT);
-    //uint16_t * indices = (uint16_t *)::malloc(3 * (uint16_t)render_ctx->waves->ntri * sizeof(uint16_t)); // 3 indices per face
-    uint16_t * indices = (uint16_t *)::malloc(193548); // visual studio stupid size warning!!!!
+    uint32_t _idx_cnt = 3 * (uint32_t)render_ctx->waves->ntri;
+    uint32_t * indices = (uint32_t *)::malloc(_idx_cnt * sizeof(uint32_t)); // 3 indices per face
     SIMPLE_ASSERT(render_ctx->waves->nvtx < 0x0000ffff, "Invalid vertex count");
 
     // Iterate over each quad.
-    int m = render_ctx->waves->nrow;
-    int n = render_ctx->waves->ncol;
-    int k = 0;
-    for (int i = 0; i < m - 1; ++i) {
-        for (int j = 0; j < n - 1; ++j) {
+    uint32_t m = render_ctx->waves->nrow;
+    uint32_t n = render_ctx->waves->ncol;
+    uint32_t k = 0;
+    for (uint32_t i = 0; i < m - 1; ++i) {
+        for (uint32_t j = 0; j < n - 1; ++j) {
             indices[k] = i * n + j;
             indices[k + 1] = i * n + j + 1;
             indices[k + 2] = (i + 1) * n + j;
@@ -412,7 +412,7 @@ create_water_geometry (D3DRenderContext * render_ctx) {
     }
 
     UINT vb_byte_size = render_ctx->waves->nvtx * sizeof(Vertex);
-    UINT ib_byte_size = _WAVE_IDX_CNT * sizeof(uint16_t);
+    UINT ib_byte_size = _idx_cnt * sizeof(uint32_t);
 
     // -- Fill out render_ctx geom (output)
 
@@ -429,10 +429,10 @@ create_water_geometry (D3DRenderContext * render_ctx) {
     render_ctx->geom[GEOM_WATER].vb_byte_stide = sizeof(Vertex);
     render_ctx->geom[GEOM_WATER].vb_byte_size = vb_byte_size;
     render_ctx->geom[GEOM_WATER].ib_byte_size = ib_byte_size;
-    render_ctx->geom[GEOM_WATER].index_format = DXGI_FORMAT_R16_UINT;
+    render_ctx->geom[GEOM_WATER].index_format = DXGI_FORMAT_R32_UINT;
 
     SubmeshGeometry submesh;
-    submesh.index_count = _WAVE_IDX_CNT;
+    submesh.index_count = _idx_cnt;
     submesh.start_index_location = 0;
     submesh.base_vertex_location = 0;
 
