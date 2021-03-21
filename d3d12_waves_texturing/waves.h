@@ -7,8 +7,7 @@
 using namespace DirectX;
 using namespace concurrency;
 
-#define WAVE_VTX_CNT   16384
-
+template <UINT N_VTX>
 struct Waves {
     int nrow;
     int ncol;
@@ -22,19 +21,19 @@ struct Waves {
 
     float time_step, spatial_step;
 
-    XMFLOAT3 prev_sol[WAVE_VTX_CNT];
-    XMFLOAT3 curr_sol[WAVE_VTX_CNT];
-    XMFLOAT3 normal[WAVE_VTX_CNT];
-    XMFLOAT3 tangent_x[WAVE_VTX_CNT];
+    XMFLOAT3 prev_sol[N_VTX];
+    XMFLOAT3 curr_sol[N_VTX];
+    XMFLOAT3 normal[N_VTX];
+    XMFLOAT3 tangent_x[N_VTX];
 
 };
+template <UINT N_VTX>
 inline void
-Waves_Init (Waves * wave, int m, int n, float dx, float dt, float speed, float damping) {
+Waves_Init (Waves<N_VTX> * wave, int m, int n, float dx, float dt, float speed, float damping) {
     wave->nrow = m;
     wave->ncol = n;
 
     wave->nvtx = m * n;
-    SIMPLE_ASSERT(WAVE_VTX_CNT == wave->nvtx, "Incorrect vertex count");
 
     wave->ntri = (m - 1) * (n - 1) * 2;
 
@@ -66,20 +65,24 @@ Waves_Init (Waves * wave, int m, int n, float dx, float dt, float speed, float d
     wave->width = wave->ncol * wave->spatial_step;
     wave->depth = wave->nrow * wave->spatial_step;
 }
+template <UINT N_VTX>
 DirectX::XMFLOAT3 &
-Waves_GetPosition (Waves * wave, int i) {
+Waves_GetPosition (Waves<N_VTX> * wave, int i) {
     return wave->curr_sol[i];
 }
+template <UINT N_VTX>
 DirectX::XMFLOAT3 &
-Waves_GetNormal (Waves * wave, int i) {
+Waves_GetNormal (Waves<N_VTX> * wave, int i) {
     return wave->normal[i];
 }
+template <UINT N_VTX>
 DirectX::XMFLOAT3 &
-Waves_GetTangentX (Waves * wave, int i) {
+Waves_GetTangentX (Waves<N_VTX> * wave, int i) {
     return wave->tangent_x[i];
 }
+template <UINT N_VTX>
 inline void
-Waves_Update (Waves * wave, float dt, XMFLOAT3 temp []) {
+Waves_Update (Waves<N_VTX> * wave, float dt, XMFLOAT3 temp []) {
     static float t = 0;
 
         // Accumulate time.
@@ -116,7 +119,7 @@ Waves_Update (Waves * wave, float dt, XMFLOAT3 temp []) {
         // current solution becomes the new previous solution.
 
         // Swap prev with curr solution
-        for (unsigned i = 0; i < WAVE_VTX_CNT; i++) {
+        for (unsigned i = 0; i < N_VTX; i++) {
         //write any swapping technique
             temp[i] = wave->prev_sol[i];
             wave->prev_sol[i] = wave->curr_sol[i];
@@ -150,8 +153,9 @@ Waves_Update (Waves * wave, float dt, XMFLOAT3 temp []) {
                                   });
     }
 }
+template <UINT N_VTX>
 inline void
-Waves_Disturb (Waves * wave, int i, int j, float magnitude) {
+Waves_Disturb (Waves<N_VTX> * wave, int i, int j, float magnitude) {
     // Don't disturb boundaries.
     SIMPLE_ASSERT(i > 1 && i < wave->nrow - 2, );
     assert(j > 1 && j < wave->ncol - 2);

@@ -132,8 +132,6 @@ struct D3DRenderContext {
     RenderItem                      render_items[OBJ_COUNT];    /* crate, water and land */
     UINT                            pass_cbv_offset;
 
-    Waves *                         waves;
-
     MeshGeometry                    geom[GEOM_COUNT];
 
     // Synchronization stuff
@@ -244,16 +242,6 @@ create_materials (Material out_materials []) {
     out_materials[MAT_WOOD_CRATE].roughness = 0.2f;
     out_materials[MAT_WOOD_CRATE].mat_transform = Identity4x4();
 }
-// NOTE(omid): Don't worry this is expermental!
-#define _BOX_VTX_CNT   24
-#define _BOX_IDX_CNT   36
-
-#define _WAVE_VTX_CNT   16384
-#define _WAVE_IDX_CNT   96774
-
-#define _GRID_VTX_CNT   2500
-#define _GRID_IDX_CNT   14406
-
 static float
 calc_hill_height (float x, float z) {
     return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
@@ -275,24 +263,28 @@ calc_hill_normal (float x, float z) {
 static void
 create_shape_geometry (D3DRenderContext * render_ctx) {
 
-    Vertex *    vertices = (Vertex *)::malloc(sizeof(Vertex) * _BOX_VTX_CNT);
-    uint16_t *  indices = (uint16_t *)::malloc(sizeof(uint16_t) * _BOX_IDX_CNT);
-    BYTE *      scratch = (BYTE *)::malloc(sizeof(GeomVertex) * _BOX_VTX_CNT + sizeof(uint16_t) * _BOX_IDX_CNT);
+    // required sizes
+    int nvtx = 24;
+    int nidx = 36;
+
+    Vertex *    vertices = (Vertex *)::malloc(sizeof(Vertex) * nvtx);
+    uint16_t *  indices = (uint16_t *)::malloc(sizeof(uint16_t) * nidx);
+    BYTE *      scratch = (BYTE *)::malloc(sizeof(GeomVertex) * nvtx + sizeof(uint16_t) * nidx);
 
     // box
-    UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
+    UINT bsz = sizeof(GeomVertex) * nvtx;
     GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(scratch);
     uint16_t *      box_indices = reinterpret_cast<uint16_t *>(scratch + bsz);
 
     create_box(8.0f, 8.0f, 8.0f, box_vertices, box_indices);
 
     SubmeshGeometry box_submesh = {};
-    box_submesh.index_count = _BOX_IDX_CNT;
+    box_submesh.index_count = nidx;
     box_submesh.start_index_location = 0;
     box_submesh.base_vertex_location = 0;
 
     UINT k = 0;
-    for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
+    for (size_t i = 0; i < nvtx; ++i, ++k) {
         vertices[k].position = box_vertices[i].Position;
         vertices[k].normal = box_vertices[i].Normal;
         vertices[k].texc = box_vertices[i].TexC;
@@ -300,12 +292,12 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
 
     // -- pack indices
     k = 0;
-    for (size_t i = 0; i < _BOX_IDX_CNT; ++i, ++k) {
+    for (size_t i = 0; i < nidx; ++i, ++k) {
         indices[k] = box_indices[i];
     }
 
-    UINT vb_byte_size = _BOX_VTX_CNT * sizeof(Vertex);
-    UINT ib_byte_size = _BOX_IDX_CNT * sizeof(uint16_t);
+    UINT vb_byte_size = nvtx * sizeof(Vertex);
+    UINT ib_byte_size = nidx * sizeof(uint16_t);
 
     // -- Fill out geom
     D3DCreateBlob(vb_byte_size, &render_ctx->geom[GEOM_BOX].vb_cpu);
@@ -335,9 +327,15 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
 static void
 create_land_geometry (D3DRenderContext * render_ctx) {
 
-    Vertex * vertices = (Vertex *)::malloc(sizeof(Vertex) * _GRID_VTX_CNT);
-    uint16_t * indices = (uint16_t *)::malloc(sizeof(uint16_t) * _GRID_IDX_CNT);
-    GeomVertex * grid = (GeomVertex *)::malloc(sizeof(GeomVertex) * _GRID_VTX_CNT);
+    // required sizes calculations
+    int nrow = 50;
+    int ncol = 50;
+    int nvtx = nrow * ncol;
+    int nidx = (nrow - 1) * (ncol - 1) * 6;     // every 6 vertices form a quad
+
+    Vertex * vertices = (Vertex *)::malloc(sizeof(Vertex) * nvtx);
+    uint16_t * indices = (uint16_t *)::malloc(sizeof(uint16_t) * nidx);
+    GeomVertex * grid = (GeomVertex *)::malloc(sizeof(GeomVertex) * nvtx);
 
     create_grid(160.0f, 160.0f, 50, 50, grid, indices);
 
@@ -345,7 +343,7 @@ create_land_geometry (D3DRenderContext * render_ctx) {
     // each vertex.  In addition, color the vertices based on their height so we have
     // sandy looking beaches, grassy low hills, and snow mountain peaks.
 
-    for (unsigned i = 0; i < _GRID_VTX_CNT; ++i) {
+    for (int i = 0; i < nvtx; ++i) {
         auto & p = grid[i].Position;
         vertices[i].position = p;
         vertices[i].position.y = calc_hill_height(p.x, p.z);
@@ -353,8 +351,8 @@ create_land_geometry (D3DRenderContext * render_ctx) {
         vertices[i].texc = grid[i].TexC;
     }
 
-    UINT vb_byte_size = _GRID_VTX_CNT * sizeof(Vertex);
-    UINT ib_byte_size = _GRID_IDX_CNT * sizeof(uint16_t);
+    UINT vb_byte_size = nvtx * sizeof(Vertex);
+    UINT ib_byte_size = nidx * sizeof(uint16_t);
 
     // -- Fill out render_ctx geom (output)
 
@@ -375,7 +373,7 @@ create_land_geometry (D3DRenderContext * render_ctx) {
     render_ctx->geom[GEOM_GRID].index_format = DXGI_FORMAT_R16_UINT;
 
     SubmeshGeometry submesh;
-    submesh.index_count = _GRID_IDX_CNT;
+    submesh.index_count = nidx;
     submesh.start_index_location = 0;
     submesh.base_vertex_location = 0;
 
@@ -387,31 +385,32 @@ create_land_geometry (D3DRenderContext * render_ctx) {
     ::free(vertices);
 }
 static void
-create_water_geometry (D3DRenderContext * render_ctx) {
+create_water_geometry (UINT nrow, UINT ncol, UINT ntri, D3DRenderContext * render_ctx) {
+    uint32_t _WAVE_VTX_CNT = ncol * nrow;
     Vertex * vertices = (Vertex *)::malloc(sizeof(Vertex) * _WAVE_VTX_CNT);
-    uint32_t _idx_cnt = 3 * (uint32_t)render_ctx->waves->ntri;
+    uint32_t _idx_cnt = 3 * ntri;
     uint32_t * indices = (uint32_t *)::malloc(_idx_cnt * sizeof(uint32_t)); // 3 indices per face
-    SIMPLE_ASSERT(render_ctx->waves->nvtx < 0x0000ffff, "Invalid vertex count");
+    SIMPLE_ASSERT(_WAVE_VTX_CNT < 0x0000ffff, "Invalid vertex count");
 
     // Iterate over each quad.
-    uint32_t m = render_ctx->waves->nrow;
-    uint32_t n = render_ctx->waves->ncol;
-    uint32_t k = 0;
-    for (uint32_t i = 0; i < m - 1; ++i) {
-        for (uint32_t j = 0; j < n - 1; ++j) {
-            indices[k] = i * n + j;
-            indices[k + 1] = i * n + j + 1;
-            indices[k + 2] = (i + 1) * n + j;
+    int m = nrow;
+    int n = ncol;
+    int k = 0;
+    for (int i = 0; i < m - 1; ++i) {
+        for (int j = 0; j < n - 1; ++j) {
+            indices[k] = (i * n + j);
+            indices[k + 1] = static_cast<uint32_t>(i * n + j + 1);  // is this a bug warning?
+            indices[k + 2] = ((i + 1) * n + j);
 
-            indices[k + 3] = (i + 1) * n + j;
-            indices[k + 4] = i * n + j + 1;
-            indices[k + 5] = (i + 1) * n + j + 1;
+            indices[k + 3] = ((i + 1) * n + j);
+            indices[k + 4] = (i * n + j + 1);
+            indices[k + 5] = ((i + 1) * n + j + 1);
 
             k += 6; // next quad
         }
     }
 
-    UINT vb_byte_size = render_ctx->waves->nvtx * sizeof(Vertex);
+    UINT vb_byte_size = _WAVE_VTX_CNT * sizeof(Vertex);
     UINT ib_byte_size = _idx_cnt * sizeof(uint32_t);
 
     // -- Fill out render_ctx geom (output)
@@ -1009,8 +1008,9 @@ static float
 rand_float (float a, float b) {
     return a + rand_float() * (b - a);
 }
+template <UINT N_VTX>
 static void
-update_waves_vb (D3DRenderContext * render_ctx, GameTimer * timer) {
+update_waves_vb (Waves<N_VTX> * waves, D3DRenderContext * render_ctx, GameTimer * timer) {
     float total_time = Timer_GetTotalTime(timer);
     float delta_time = timer->delta_time;
 
@@ -1019,17 +1019,17 @@ update_waves_vb (D3DRenderContext * render_ctx, GameTimer * timer) {
     if ((total_time - t_base) >= 0.25f) {
         t_base += 0.25f;
 
-        int i = rand_int(4, render_ctx->waves->nrow - 5);
-        int j = rand_int(4, render_ctx->waves->ncol - 5);
+        int i = rand_int(4, waves->nrow - 5);
+        int j = rand_int(4, waves->ncol - 5);
 
         float r = rand_float(0.2f, 0.5f);
 
-        Waves_Disturb(render_ctx->waves, i, j, r);
+        Waves_Disturb(waves, i, j, r);
     }
 
     // Update the wave simulation.
-    XMFLOAT3 * temp = (XMFLOAT3 *)::malloc(sizeof(XMFLOAT3) * WAVE_VTX_CNT);
-    Waves_Update(render_ctx->waves, delta_time, temp);
+    XMFLOAT3 * temp = (XMFLOAT3 *)::malloc(sizeof(XMFLOAT3) * N_VTX);
+    Waves_Update(waves, delta_time, temp);
     ::free(temp);
 
     // Update the wave vertex buffer with the new solution.
@@ -1044,16 +1044,16 @@ update_waves_vb (D3DRenderContext * render_ctx, GameTimer * timer) {
     //);
 
     UINT v_size = (UINT64)sizeof(Vertex);
-    for (int i = 0; i < WAVE_VTX_CNT; ++i) {
+    for (int i = 0; i < N_VTX; ++i) {
         Vertex v;
 
-        v.position = Waves_GetPosition(render_ctx->waves, i);
-        v.normal = render_ctx->waves->normal[i];
+        v.position = Waves_GetPosition(waves, i);
+        v.normal = waves->normal[i];
 
             // Derive tex-coords from position by 
         // mapping [-w/2,w/2] --> [0,1]
-        v.texc.x = 0.5f + v.position.x / render_ctx->waves->width;
-        v.texc.y = 0.5f - v.position.z / render_ctx->waves->depth;
+        v.texc.x = 0.5f + v.position.x / waves->width;
+        v.texc.y = 0.5f - v.position.z / waves->depth;
 
         ::memcpy(wave_ptr + (UINT64)i * v_size, &v, v_size);
     }
@@ -1211,9 +1211,6 @@ init_renderctx (D3DRenderContext * render_ctx) {
     render_ctx->scissor_rect.right = global_scene_ctx.width;
     render_ctx->scissor_rect.bottom = global_scene_ctx.height;
 
-    render_ctx->waves = (Waves *)::malloc(sizeof(Waves));
-    Waves_Init(render_ctx->waves, 128, 128, 1.0f, 0.03f, 4.0f, 0.2f);
-
     // -- initialize light data
     render_ctx->main_pass_constants.lights[0].strength = {.5f,.5f,.5f};
     render_ctx->main_pass_constants.lights[0].falloff_start = 1.0f;
@@ -1329,6 +1326,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     D3DRenderContext * render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
     init_renderctx(render_ctx);
+
+    uint32_t const nrow = 128;
+    uint32_t const ncols = 128;
+    uint32_t const N_VTX = nrow * ncols;
+    Waves<N_VTX> * waves = nullptr;
+    waves = (Waves<N_VTX> *)::malloc(sizeof(Waves<N_VTX>));
+    Waves_Init(waves, nrow, ncols, 1.0f, 0.03f, 4.0f, 0.2f);
 
     // Query Adapter (PhysicalDevice)
     IDXGIFactory * dxgi_factory = nullptr;
@@ -1534,7 +1538,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].pass_cb_data_ptr, &render_ctx->frame_resources[i].pass_cb_data, sizeof(render_ctx->frame_resources[i].pass_cb_data));
 
-        create_upload_buffer(render_ctx->device, (UINT64)vertex_size * _WAVE_VTX_CNT, &render_ctx->frame_resources[i].waves_vb_data_ptr, &render_ctx->frame_resources[i].waves_vb);
+        create_upload_buffer(render_ctx->device, (UINT64)vertex_size * N_VTX, &render_ctx->frame_resources[i].waves_vb_data_ptr, &render_ctx->frame_resources[i].waves_vb);
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].waves_vb_data_ptr, &render_ctx->frame_resources[i].waves_vb_data, sizeof(render_ctx->frame_resources[i].waves_vb_data));
     }
@@ -1597,7 +1601,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma region Shapes_And_Renderitem_Creation
     create_land_geometry(render_ctx);
-    create_water_geometry(render_ctx);
+    create_water_geometry(waves->nrow, waves->ncol, waves->ntri, render_ctx);
 
     create_shape_geometry(render_ctx);
     create_materials(render_ctx->materials);
@@ -1665,7 +1669,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_mat_cbuffers(render_ctx);
         update_obj_cbuffers(render_ctx);
 
-        update_waves_vb(render_ctx, &global_timer);
+        update_waves_vb<N_VTX>(waves, render_ctx, &global_timer);
 
         CHECK_AND_FAIL(draw_main(render_ctx));
 

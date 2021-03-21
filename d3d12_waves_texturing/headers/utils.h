@@ -531,7 +531,6 @@ spherical_to_cartesian (float radius, float theta, float phi) {
     );
 }
 
-// NOTE(omid): shape generator helpers 
 static void
 create_box (float width, float height, float depth, GeomVertex out_vtx [], uint16_t out_idx []) {
 
