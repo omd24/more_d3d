@@ -478,7 +478,7 @@ create_skull_geometry (D3DRenderContext * render_ctx   /*, Vertex vertices [], u
             printf("read line: %s\n", linebuf);
             return;
         }
-        vertices[i].texc = XMFLOAT2(0.0f, 0.0f);
+        vertices[i].texc = XMFLOAT2(0.0f, 0.0f);    // not really texturing the skull diligently
     }
     // -- skip three lines
     fgets(linebuf, sizeof(linebuf), f);

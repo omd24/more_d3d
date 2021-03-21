@@ -1435,7 +1435,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->device, render_ctx->direct_cmd_list,
         render_ctx->textures[TEX_WATER].filename, &render_ctx->textures[TEX_WATER]
     );
-    // crate
+    // grass
     strcpy_s(render_ctx->textures[TEX_GRASS].name, "grasstex");
     wcscpy_s(render_ctx->textures[TEX_GRASS].filename, L"../Textures/grass.dds");
     load_texture(
