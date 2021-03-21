@@ -28,19 +28,17 @@
 #include "headers/game_timer.h"
 #include "headers/dds_loader.h"
 
-#include "waves.h"
-
 // TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)
 #define NUM_BACKBUFFERS         2
 #define NUM_QUEUING_FRAMES      3
 #define NUM_STATIC_SAMPLERS     6
 
 #define MAX_RENDERITEM_COUNT    50
-#define OBJ_COUNT               3       /* crate, water and land */
-#define MAT_COUNT               3       /* crate, water and land */
-#define TEX_COUNT               3       /* crate, water and grass*/
+#define OBJ_COUNT               2       /* crate and land */
+#define MAT_COUNT               2       /* crate and land */
+#define TEX_COUNT               2       /* crate and grass*/
 
-#define GEOM_COUNT              3       /* box geometry, water, land */
+#define GEOM_COUNT              2       /* box and land */
 
 //enum SUBMESH_INDEX {
 //    _BOX_ID,
@@ -49,24 +47,20 @@
 //    _CYLINDER_ID
 //};
 enum RENDERITEM_INDEX {
-    RITEM_WATER_ID = 0,
-    RITEM_GRID_ID = 1,
-    RITEM_BOX_ID = 2,
+    RITEM_GRID_ID = 0,
+    RITEM_BOX_ID = 1,
 };
 enum GEOM_INDEX {
     GEOM_BOX = 0,
-    GEOM_WATER = 1,
-    GEOM_GRID = 2,
+    GEOM_GRID = 1,
 };
 enum MAT_INDEX {
     MAT_WOOD_CRATE = 0,
     MAT_GRASS_ID = 1,
-    MAT_WATER_ID = 2,
 };
 enum TEX_INDEX {
     TEX_CRATE01 = 0,
-    TEX_WATER = 1,
-    TEX_GRASS = 2
+    TEX_GRASS = 1
 };
 enum SAMPLER_INDEX {
     SAMPLER_POINT_WRAP = 0,
@@ -225,18 +219,9 @@ create_materials (Material out_materials []) {
     out_materials[MAT_GRASS_ID].roughness = 0.125f;
     out_materials[MAT_GRASS_ID].mat_transform = Identity4x4();
 
-    // -- not a good water material (we don't have transparency and env reflection rn)
-    strcpy_s(out_materials[MAT_WATER_ID].name, "water");
-    out_materials[MAT_WATER_ID].mat_cbuffer_index = 1;
-    out_materials[MAT_WATER_ID].diffuse_srvheap_index = 1;
-    out_materials[MAT_WATER_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_WATER_ID].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-    out_materials[MAT_WATER_ID].roughness = 0.0f;
-    out_materials[MAT_WATER_ID].mat_transform = Identity4x4();
-
     strcpy_s(out_materials[MAT_WOOD_CRATE].name, "wood_crate");
-    out_materials[MAT_WOOD_CRATE].mat_cbuffer_index = 2;
-    out_materials[MAT_WOOD_CRATE].diffuse_srvheap_index = 2;
+    out_materials[MAT_WOOD_CRATE].mat_cbuffer_index = 1;
+    out_materials[MAT_WOOD_CRATE].diffuse_srvheap_index = 1;
     out_materials[MAT_WOOD_CRATE].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     out_materials[MAT_WOOD_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     out_materials[MAT_WOOD_CRATE].roughness = 0.2f;
@@ -264,8 +249,8 @@ static void
 create_shape_geometry (D3DRenderContext * render_ctx) {
 
     // required sizes
-    int nvtx = 24;
-    int nidx = 36;
+    int nvtx = 24;      // 6 quad * 4 vertices/quad
+    int nidx = 36;      // every 6 vertices form a quad
 
     Vertex *    vertices = (Vertex *)::malloc(sizeof(Vertex) * nvtx);
     uint16_t *  indices = (uint16_t *)::malloc(sizeof(uint16_t) * nidx);
@@ -385,85 +370,15 @@ create_land_geometry (D3DRenderContext * render_ctx) {
     ::free(vertices);
 }
 static void
-create_water_geometry (UINT nrow, UINT ncol, UINT ntri, D3DRenderContext * render_ctx) {
-    uint32_t _WAVE_VTX_CNT = ncol * nrow;
-    Vertex * vertices = (Vertex *)::malloc(sizeof(Vertex) * _WAVE_VTX_CNT);
-    uint32_t _idx_cnt = 3 * ntri;
-    uint32_t * indices = (uint32_t *)::malloc(_idx_cnt * sizeof(uint32_t)); // 3 indices per face
-    SIMPLE_ASSERT(_WAVE_VTX_CNT < 0x0000ffff, "Invalid vertex count");
-
-    // Iterate over each quad.
-    int m = nrow;
-    int n = ncol;
-    int k = 0;
-    for (int i = 0; i < m - 1; ++i) {
-        for (int j = 0; j < n - 1; ++j) {
-            indices[k] = (i * n + j);
-            indices[k + 1] = (i * n + j + 1);       // TODO(omid): address this warning 
-            indices[k + 2] = ((i + 1) * n + j);
-
-            indices[k + 3] = ((i + 1) * n + j);
-            indices[k + 4] = (i * n + j + 1);
-            indices[k + 5] = ((i + 1) * n + j + 1);
-
-            k += 6; // next quad
-        }
-    }
-
-    UINT vb_byte_size = _WAVE_VTX_CNT * sizeof(Vertex);
-    UINT ib_byte_size = _idx_cnt * sizeof(uint32_t);
-
-    // -- Fill out render_ctx geom (output)
-
-    //D3DCreateBlob(vb_byte_size, &render_ctx->water_geom.vb_cpu);
-    //CopyMemory(render_ctx->water_geom.vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
-
-    CHECK_AND_FAIL(D3DCreateBlob(ib_byte_size, &render_ctx->geom[GEOM_WATER].ib_cpu));
-    if (indices)
-        CopyMemory(render_ctx->geom[GEOM_WATER].ib_cpu->GetBufferPointer(), indices, ib_byte_size);
-
-    //create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom[GEOM_WATER].vb_uploader, &render_ctx->geom[GEOM_WATER].vb_gpu);
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom[GEOM_WATER].ib_uploader, &render_ctx->geom[GEOM_WATER].ib_gpu);
-
-    render_ctx->geom[GEOM_WATER].vb_byte_stide = sizeof(Vertex);
-    render_ctx->geom[GEOM_WATER].vb_byte_size = vb_byte_size;
-    render_ctx->geom[GEOM_WATER].ib_byte_size = ib_byte_size;
-    render_ctx->geom[GEOM_WATER].index_format = DXGI_FORMAT_R32_UINT;
-
-    SubmeshGeometry submesh;
-    submesh.index_count = _idx_cnt;
-    submesh.start_index_location = 0;
-    submesh.base_vertex_location = 0;
-
-    render_ctx->geom[GEOM_WATER].submesh_names[0] = "water";
-    render_ctx->geom[GEOM_WATER].submesh_geoms[0] = submesh;
-
-    ::free(indices);
-    ::free(vertices);
-}
-static void
 create_render_items (
     RenderItem render_items [],
-    MeshGeometry * box_geom, MeshGeometry * water_geom, MeshGeometry * grid_geom,
+    MeshGeometry * box_geom, MeshGeometry * grid_geom,
     Material materials []
 ) {
-    render_items[RITEM_WATER_ID].world = Identity4x4();
-    render_items[RITEM_WATER_ID].tex_transform = Identity4x4();
-    XMStoreFloat4x4(&render_items[RITEM_WATER_ID].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
-    render_items[RITEM_WATER_ID].obj_cbuffer_index = 0;
-    render_items[RITEM_WATER_ID].mat = &materials[MAT_WATER_ID];
-    render_items[RITEM_WATER_ID].geometry = water_geom;
-    render_items[RITEM_WATER_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[RITEM_WATER_ID].index_count = water_geom->submesh_geoms[0].index_count;
-    render_items[RITEM_WATER_ID].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
-    render_items[RITEM_WATER_ID].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
-    render_items[RITEM_WATER_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[RITEM_WATER_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-
     render_items[RITEM_GRID_ID].world = Identity4x4();
     render_items[RITEM_GRID_ID].tex_transform = Identity4x4();
     XMStoreFloat4x4(&render_items[RITEM_GRID_ID].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
-    render_items[RITEM_GRID_ID].obj_cbuffer_index = 1;
+    render_items[RITEM_GRID_ID].obj_cbuffer_index = 0;
     render_items[RITEM_GRID_ID].mat = &materials[MAT_GRASS_ID];
     render_items[RITEM_GRID_ID].geometry = grid_geom;
     render_items[RITEM_GRID_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -476,7 +391,7 @@ create_render_items (
     render_items[RITEM_BOX_ID].world = Identity4x4();
     XMStoreFloat4x4(&render_items[RITEM_BOX_ID].world, XMMatrixTranslation(3.0f, 2.0f, -9.0f));
     render_items[RITEM_BOX_ID].tex_transform = Identity4x4();
-    render_items[RITEM_BOX_ID].obj_cbuffer_index = 2;
+    render_items[RITEM_BOX_ID].obj_cbuffer_index = 1;
     render_items[RITEM_BOX_ID].geometry = box_geom;
     render_items[RITEM_BOX_ID].mat = &materials[MAT_WOOD_CRATE];
     render_items[RITEM_BOX_ID].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -544,18 +459,6 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     srv_desc.Texture2D.MipLevels = grass_tex->GetDesc().MipLevels;
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
     render_ctx->device->CreateShaderResourceView(grass_tex, &srv_desc, descriptor_cpu_handle);
-
-    // water texture
-    ID3D12Resource * water_tex = render_ctx->textures[TEX_WATER].resource;
-    memset(&srv_desc, 0, sizeof(srv_desc));         // reset desc
-    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv_desc.Format = water_tex->GetDesc().Format;
-    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srv_desc.Texture2D.MostDetailedMip = 0;
-    srv_desc.Texture2D.MipLevels = water_tex->GetDesc().MipLevels;
-    srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
-    descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptr
-    render_ctx->device->CreateShaderResourceView(water_tex, &srv_desc, descriptor_cpu_handle);
 
     // crate texture
     ID3D12Resource * box_tex = render_ctx->textures[TEX_CRATE01].resource;
@@ -1008,60 +911,6 @@ static float
 rand_float (float a, float b) {
     return a + rand_float() * (b - a);
 }
-template <UINT N_VTX>
-static void
-update_waves_vb (Waves<N_VTX> * waves, D3DRenderContext * render_ctx, GameTimer * timer) {
-    float total_time = Timer_GetTotalTime(timer);
-    float delta_time = timer->delta_time;
-
-    // Every quarter second, generate a random wave.
-    static float t_base = 0.0f;
-    if ((total_time - t_base) >= 0.25f) {
-        t_base += 0.25f;
-
-        int i = rand_int(4, waves->nrow - 5);
-        int j = rand_int(4, waves->ncol - 5);
-
-        float r = rand_float(0.2f, 0.5f);
-
-        Waves_Disturb(waves, i, j, r);
-    }
-
-    // Update the wave simulation.
-    XMFLOAT3 * temp = (XMFLOAT3 *)::malloc(sizeof(XMFLOAT3) * N_VTX);
-    Waves_Update(waves, delta_time, temp);
-    ::free(temp);
-
-    // Update the wave vertex buffer with the new solution.
-    UINT frame_index = render_ctx->frame_index;
-    uint8_t * wave_ptr = render_ctx->frame_resources[frame_index].waves_vb_data_ptr;
-
-    //D3D12_RANGE mem_range = {};
-    //mem_range.Begin = 0;
-    //mem_range.End = 0;
-    //CHECK_AND_FAIL(
-    //    render_ctx->frame_resources[frame_index].waves_vb->Map(0, &mem_range, reinterpret_cast<void**>(&wave_ptr))
-    //);
-
-    UINT v_size = (UINT64)sizeof(Vertex);
-    for (int i = 0; i < N_VTX; ++i) {
-        Vertex v;
-
-        v.position = Waves_GetPosition(waves, i);
-        v.normal = waves->normal[i];
-
-            // Derive tex-coords from position by 
-        // mapping [-w/2,w/2] --> [0,1]
-        v.texc.x = 0.5f + v.position.x / waves->width;
-        v.texc.y = 0.5f - v.position.z / waves->depth;
-
-        ::memcpy(wave_ptr + (UINT64)i * v_size, &v, v_size);
-    }
-    // NOTE(omid): We did the upload_buffer mapping to data pointer (when creating the upload_buffer)
-
-    // Set the dynamic VB of the wave renderitem to the current frame VB.
-    render_ctx->render_items[RITEM_WATER_ID].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
-}
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
 
@@ -1290,7 +1139,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     HWND hwnd = CreateWindowExA(
         0,                                      // Optional window styles.
         wc.lpszClassName,                       // Window class
-        "3D Waves Texturing app",               // Window title
+        "3D Skull Texturing app",               // Window title
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,       // Window style
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
@@ -1326,13 +1175,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     D3DRenderContext * render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
     init_renderctx(render_ctx);
-
-    uint32_t const nrow = 128;
-    uint32_t const ncols = 128;
-    uint32_t const N_VTX = nrow * ncols;
-    Waves<N_VTX> * waves = nullptr;
-    waves = (Waves<N_VTX> *)::malloc(sizeof(Waves<N_VTX>));
-    Waves_Init(waves, nrow, ncols, 1.0f, 0.03f, 4.0f, 0.2f);
 
     // Query Adapter (PhysicalDevice)
     IDXGIFactory * dxgi_factory = nullptr;
@@ -1428,13 +1270,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->device, render_ctx->direct_cmd_list,
         render_ctx->textures[TEX_CRATE01].filename, &render_ctx->textures[TEX_CRATE01]
     );
-    // water
-    strcpy_s(render_ctx->textures[TEX_WATER].name, "watertex");
-    wcscpy_s(render_ctx->textures[TEX_WATER].filename, L"../Textures/water1.dds");
-    load_texture(
-        render_ctx->device, render_ctx->direct_cmd_list,
-        render_ctx->textures[TEX_WATER].filename, &render_ctx->textures[TEX_WATER]
-    );
     // crate
     strcpy_s(render_ctx->textures[TEX_GRASS].name, "grasstex");
     wcscpy_s(render_ctx->textures[TEX_GRASS].filename, L"../Textures/grass.dds");
@@ -1516,11 +1351,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     }
 #pragma endregion Rtv_Creation
 
-#pragma region Create CBuffers and Dynamic Vertex Buffer (waves_vb)
+#pragma region Create CBuffers
     UINT obj_cb_size = sizeof(ObjectConstants);
     UINT mat_cb_size = sizeof(MaterialConstants);
     UINT pass_cb_size = sizeof(PassConstants);
-    UINT vertex_size = sizeof(Vertex);
     for (UINT i = 0; i < NUM_QUEUING_FRAMES; ++i) {
         // -- create a cmd-allocator for each frame
         res = render_ctx->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx->frame_resources[i].cmd_list_alloc));
@@ -1537,10 +1371,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         create_upload_buffer(render_ctx->device, pass_cb_size * 1, &render_ctx->frame_resources[i].pass_cb_data_ptr, &render_ctx->frame_resources[i].pass_cb);
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].pass_cb_data_ptr, &render_ctx->frame_resources[i].pass_cb_data, sizeof(render_ctx->frame_resources[i].pass_cb_data));
-
-        create_upload_buffer(render_ctx->device, (UINT64)vertex_size * N_VTX, &render_ctx->frame_resources[i].waves_vb_data_ptr, &render_ctx->frame_resources[i].waves_vb);
-        // Initialize cb data
-        ::memcpy(render_ctx->frame_resources[i].waves_vb_data_ptr, &render_ctx->frame_resources[i].waves_vb_data, sizeof(render_ctx->frame_resources[i].waves_vb_data));
     }
 #pragma endregion
 
@@ -1601,14 +1431,12 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma region Shapes_And_Renderitem_Creation
     create_land_geometry(render_ctx);
-    create_water_geometry(waves->nrow, waves->ncol, waves->ntri, render_ctx);
 
     create_shape_geometry(render_ctx);
     create_materials(render_ctx->materials);
     create_render_items(
         render_ctx->render_items,
         &render_ctx->geom[GEOM_BOX],
-        &render_ctx->geom[GEOM_WATER],
         &render_ctx->geom[GEOM_GRID],
         render_ctx->materials
     );
@@ -1661,15 +1489,11 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
         Timer_Tick(&global_timer);
 
-        animate_material(&render_ctx->materials[MAT_WATER_ID], &global_timer);
-
         handle_keyboard_input(&global_scene_ctx, &global_timer);
         update_camera(&global_scene_ctx);
         update_pass_cbuffers(render_ctx, &global_timer);
         update_mat_cbuffers(render_ctx);
         update_obj_cbuffers(render_ctx);
-
-        update_waves_vb<N_VTX>(waves, render_ctx, &global_timer);
 
         CHECK_AND_FAIL(draw_main(render_ctx));
 
@@ -1690,18 +1514,15 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->frame_resources[i].obj_cb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].mat_cb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].pass_cb->Unmap(0, nullptr);
-        render_ctx->frame_resources[i].waves_vb->Unmap(0, nullptr);
         render_ctx->frame_resources[i].obj_cb->Release();
         render_ctx->frame_resources[i].mat_cb->Release();
         render_ctx->frame_resources[i].pass_cb->Release();
-        render_ctx->frame_resources[i].waves_vb->Release();
 
         render_ctx->frame_resources[i].cmd_list_alloc->Release();
     }
     for (unsigned i = 0; i < GEOM_COUNT; i++) {
         render_ctx->geom[i].ib_uploader->Release();
-        if (i != GEOM_WATER)    // water uses a dynamic vb
-            render_ctx->geom[i].vb_uploader->Release();
+        render_ctx->geom[i].vb_uploader->Release();
 
         render_ctx->geom[i].ib_gpu->Release();
         render_ctx->geom[i].vb_gpu->Release();
@@ -1769,3 +1590,5 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     return 0;
 }
+
+
