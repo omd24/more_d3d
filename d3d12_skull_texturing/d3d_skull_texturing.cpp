@@ -36,7 +36,7 @@
 #define MAX_RENDERITEM_COUNT    50
 #define OBJ_COUNT               23
 #define MAT_COUNT               4
-#define TEX_COUNT               2
+#define TEX_COUNT               3
 
 #define GEOM_COUNT              2
 
@@ -61,8 +61,9 @@ enum MAT_INDEX {
     MAT_SKULL_ID = 3
 };
 enum TEX_INDEX {
-    TEX_CRATE01 = 0,
-    TEX_GRASS = 1
+    TEX_BRICK = 0,
+    TEX_STONE = 1,
+    TEX_TILE = 2
 };
 enum SAMPLER_INDEX {
     SAMPLER_POINT_WRAP = 0,
@@ -215,7 +216,7 @@ static void
 create_materials (Material out_materials []) {
     strcpy_s(out_materials[MAT_BRICK_ID].name, "brick");
     out_materials[MAT_BRICK_ID].mat_cbuffer_index = 0;
-    out_materials[MAT_BRICK_ID].diffuse_srvheap_index = ...;
+    out_materials[MAT_BRICK_ID].diffuse_srvheap_index = 0;
     out_materials[MAT_BRICK_ID].diffuse_albedo = XMFLOAT4(0.65f, 0.18f, 0.18f, 1.0f);
     out_materials[MAT_BRICK_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
     out_materials[MAT_BRICK_ID].roughness = 0.1f;
@@ -223,7 +224,7 @@ create_materials (Material out_materials []) {
 
     strcpy_s(out_materials[MAT_STONE_ID].name, "stone");
     out_materials[MAT_STONE_ID].mat_cbuffer_index = 1;
-    out_materials[MAT_STONE_ID].diffuse_srvheap_index = ...;
+    out_materials[MAT_STONE_ID].diffuse_srvheap_index = 1;
     out_materials[MAT_STONE_ID].diffuse_albedo = XMFLOAT4(Colors::LightSteelBlue);
     out_materials[MAT_STONE_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     out_materials[MAT_STONE_ID].roughness = 0.3f;
@@ -231,7 +232,7 @@ create_materials (Material out_materials []) {
 
     strcpy_s(out_materials[MAT_TILE_ID].name, "tile");
     out_materials[MAT_TILE_ID].mat_cbuffer_index = 2;
-    out_materials[MAT_TILE_ID].diffuse_srvheap_index = ...;
+    out_materials[MAT_TILE_ID].diffuse_srvheap_index = 2;
     out_materials[MAT_TILE_ID].diffuse_albedo = XMFLOAT4(Colors::LightGray);
     out_materials[MAT_TILE_ID].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
     out_materials[MAT_TILE_ID].roughness = 0.2f;
@@ -239,7 +240,7 @@ create_materials (Material out_materials []) {
 
     strcpy_s(out_materials[MAT_SKULL_ID].name, "skull");
     out_materials[MAT_SKULL_ID].mat_cbuffer_index = 3;
-    out_materials[MAT_SKULL_ID].diffuse_srvheap_index = ...;
+    out_materials[MAT_SKULL_ID].diffuse_srvheap_index = 2;
     out_materials[MAT_SKULL_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     out_materials[MAT_SKULL_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     out_materials[MAT_SKULL_ID].roughness = 0.3f;
@@ -357,22 +358,25 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
     for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
         vertices[k].position = box_vertices[i].Position;
         vertices[k].normal = box_vertices[i].Normal;
-        ...tex
+        vertices[k].texc = box_vertices[i].TexC;
     }
 
     for (size_t i = 0; i < _GRID_VTX_CNT; ++i, ++k) {
         vertices[k].position = grid_vertices[i].Position;
         vertices[k].normal = grid_vertices[i].Normal;
+        vertices[k].texc = grid_vertices[i].TexC;
     }
 
     for (size_t i = 0; i < _SPHERE_VTX_CNT; ++i, ++k) {
         vertices[k].position = sphere_vertices[i].Position;
         vertices[k].normal = sphere_vertices[i].Normal;
+        vertices[k].texc = sphere_vertices[i].TexC;
     }
 
     for (size_t i = 0; i < _CYLINDER_VTX_CNT; ++i, ++k) {
         vertices[k].position = cylinder_vertices[i].Position;
         vertices[k].normal = cylinder_vertices[i].Normal;
+        vertices[k].texc = cylinder_vertices[i].TexC;
     }
 
     // -- pack indices
@@ -468,13 +472,13 @@ create_skull_geometry (D3DRenderContext * render_ctx   /*, Vertex vertices [], u
             linebuf, "%f %f %f %f %f %f",
             &vertices[i].position.x, &vertices[i].position.y, &vertices[i].position.z,
             &vertices[i].normal.x, &vertices[i].normal.y, &vertices[i].normal.z
-            ...tex
         );
         if (cnt != 6) {
             printf("read error\n");
             printf("read line: %s\n", linebuf);
             return;
         }
+        vertices[i].texc = XMFLOAT2(0.0f, 0.0f);
     }
     // -- skip three lines
     fgets(linebuf, sizeof(linebuf), f);
@@ -551,7 +555,7 @@ create_render_items (
 
     XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     render_items[_curr].tex_transform = Identity4x4();
-    XMStoreFloat4x4(&render_items[_curr].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
+    XMStoreFloat4x4(&render_items[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
     render_items[_curr].geometry = shapes_geom;
     render_items[_curr].mat = &materials[MAT_STONE_ID];
@@ -564,6 +568,7 @@ create_render_items (
     ++_curr;
 
     render_items[_curr].world = Identity4x4();
+    XMStoreFloat4x4(&render_items[_curr].tex_transform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
     render_items[_curr].geometry = shapes_geom;
     render_items[_curr].mat = &materials[MAT_TILE_ID];
@@ -576,6 +581,7 @@ create_render_items (
     ++_curr;
 
     XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(0.5f, 0.5f, 0.5f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
+    XMStoreFloat4x4(&render_items[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
     render_items[_curr].geometry = skull_geom;
     render_items[_curr].mat = &materials[MAT_SKULL_ID];
@@ -587,6 +593,7 @@ create_render_items (
     render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
     ++_curr;
 
+    XMMATRIX brick_tex_transform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
     for (int i = 0; i < 5; ++i) {
         XMMATRIX left_cylinder_world = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i * 5.0f);
         XMMATRIX right_cylinder_world = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i * 5.0f);
@@ -595,6 +602,7 @@ create_render_items (
         XMMATRIX right_sphere_world = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
 
         XMStoreFloat4x4(&render_items[_curr].world, right_cylinder_world);
+        XMStoreFloat4x4(&render_items[_curr].tex_transform, brick_tex_transform);
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_BRICK_ID];
@@ -607,6 +615,7 @@ create_render_items (
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_cylinder_world);
+        XMStoreFloat4x4(&render_items[_curr].tex_transform, brick_tex_transform);
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_BRICK_ID];
@@ -619,6 +628,7 @@ create_render_items (
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, left_sphere_world);
+        render_items[_curr].tex_transform = Identity4x4();
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_STONE_ID];
@@ -631,6 +641,7 @@ create_render_items (
         ++_curr;
 
         XMStoreFloat4x4(&render_items[_curr].world, right_sphere_world);
+        render_items[_curr].tex_transform = Identity4x4();
         render_items[_curr].obj_cbuffer_index = _curr;
         render_items[_curr].geometry = shapes_geom;
         render_items[_curr].mat = &materials[MAT_STONE_ID];
@@ -672,7 +683,6 @@ draw_render_items (
         D3D12_GPU_VIRTUAL_ADDRESS matcb_address = mat_cbuffer->GetGPUVirtualAddress();
         matcb_address += (UINT64)render_items[i].mat->mat_cbuffer_index * matcb_byte_size;
 
-        ...
         cmd_list->SetGraphicsRootDescriptorTable(0, tex);
         cmd_list->SetGraphicsRootConstantBufferView(1, objcb_address);
         cmd_list->SetGraphicsRootConstantBufferView(3, matcb_address);
@@ -692,29 +702,40 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     // Fill out the heap with actual descriptors
     D3D12_CPU_DESCRIPTOR_HANDLE descriptor_cpu_handle = render_ctx->srv_heap->GetCPUDescriptorHandleForHeapStart();
 
-    // grass texture
-    ID3D12Resource * grass_tex = render_ctx->textures[TEX_GRASS].resource;
+    // brick texture
+    ID3D12Resource * brick_tex = render_ctx->textures[TEX_BRICK].resource;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
     srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv_desc.Format = grass_tex->GetDesc().Format;
+    srv_desc.Format = brick_tex->GetDesc().Format;
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MostDetailedMip = 0;
-    srv_desc.Texture2D.MipLevels = grass_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.MipLevels = brick_tex->GetDesc().MipLevels;
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
-    render_ctx->device->CreateShaderResourceView(grass_tex, &srv_desc, descriptor_cpu_handle);
+    render_ctx->device->CreateShaderResourceView(brick_tex, &srv_desc, descriptor_cpu_handle);
 
-    // crate texture
-    ID3D12Resource * box_tex = render_ctx->textures[TEX_CRATE01].resource;
+    // stone texture
+    ID3D12Resource * stone_tex = render_ctx->textures[TEX_STONE].resource;
     memset(&srv_desc, 0, sizeof(srv_desc)); // reset desc
     srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv_desc.Format = box_tex->GetDesc().Format;
+    srv_desc.Format = stone_tex->GetDesc().Format;
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MostDetailedMip = 0;
-    srv_desc.Texture2D.MipLevels = box_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.MipLevels = stone_tex->GetDesc().MipLevels;
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
     descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
-    render_ctx->device->CreateShaderResourceView(box_tex, &srv_desc, descriptor_cpu_handle);
+    render_ctx->device->CreateShaderResourceView(stone_tex, &srv_desc, descriptor_cpu_handle);
 
+    // tile texture
+    ID3D12Resource * tile_tex = render_ctx->textures[TEX_TILE].resource;
+    memset(&srv_desc, 0, sizeof(srv_desc)); // reset desc
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Format = tile_tex->GetDesc().Format;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Texture2D.MostDetailedMip = 0;
+    srv_desc.Texture2D.MipLevels = tile_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
+    descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
+    render_ctx->device->CreateShaderResourceView(tile_tex, &srv_desc, descriptor_cpu_handle);
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
@@ -1109,30 +1130,15 @@ update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
     render_ctx->main_pass_constants.total_time = Timer_GetTotalTime(timer);
     render_ctx->main_pass_constants.ambient_light = {.25f, .25f, .35f, 1.0f};
 
-    ...
     render_ctx->main_pass_constants.lights[0].direction = {0.57735f, -0.57735f, 0.57735f};
-    render_ctx->main_pass_constants.lights[0].strength = {0.6f, 0.6f, 0.6f};
+    render_ctx->main_pass_constants.lights[0].strength = {0.8f, 0.8f, 0.8f};
     render_ctx->main_pass_constants.lights[1].direction = {-0.57735f, -0.57735f, 0.57735f};
-    render_ctx->main_pass_constants.lights[1].strength = {0.3f, 0.3f, 0.3f};
+    render_ctx->main_pass_constants.lights[1].strength = {0.4f, 0.4f, 0.4f};
     render_ctx->main_pass_constants.lights[2].direction = {0.0f, -0.707f, -0.707f};
-    render_ctx->main_pass_constants.lights[2].strength = {0.15f, 0.15f, 0.15f};
+    render_ctx->main_pass_constants.lights[2].strength = {0.2f, 0.2f, 0.2f};
 
     uint8_t * pass_ptr = render_ctx->frame_resources[render_ctx->frame_index].pass_cb_data_ptr;
     memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstants));
-}
-static int
-rand_int (int a, int b) {
-    return a + rand() % ((b - a) + 1);
-}
-// Returns random float in [0, 1).
-static float
-rand_float () {
-    return (float)(rand()) / (float)RAND_MAX;
-}
-// Returns random float in [a, b).
-static float
-rand_float (float a, float b) {
-    return a + rand_float() * (b - a);
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
@@ -1486,20 +1492,28 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 // ========================================================================================================
 #pragma region Load Textures
-    // crate
-    strcpy_s(render_ctx->textures[TEX_CRATE01].name, "woodcrate01");
-    wcscpy_s(render_ctx->textures[TEX_CRATE01].filename, L"../Textures/WoodCrate02.dds");
+    // brick
+    strcpy_s(render_ctx->textures[TEX_BRICK].name, "bricktex");
+    wcscpy_s(render_ctx->textures[TEX_BRICK].filename, L"../Textures/bricks.dds");
     load_texture(
         render_ctx->device, render_ctx->direct_cmd_list,
-        render_ctx->textures[TEX_CRATE01].filename, &render_ctx->textures[TEX_CRATE01]
+        render_ctx->textures[TEX_BRICK].filename, &render_ctx->textures[TEX_BRICK]
     );
-    // crate
-    strcpy_s(render_ctx->textures[TEX_GRASS].name, "grasstex");
-    wcscpy_s(render_ctx->textures[TEX_GRASS].filename, L"../Textures/grass.dds");
+    // stone
+    strcpy_s(render_ctx->textures[TEX_STONE].name, "stonetex");
+    wcscpy_s(render_ctx->textures[TEX_STONE].filename, L"../Textures/stone.dds");
     load_texture(
         render_ctx->device, render_ctx->direct_cmd_list,
-        render_ctx->textures[TEX_GRASS].filename, &render_ctx->textures[TEX_GRASS]
+        render_ctx->textures[TEX_STONE].filename, &render_ctx->textures[TEX_STONE]
     );
+    // tile
+    strcpy_s(render_ctx->textures[TEX_TILE].name, "tiletex");
+    wcscpy_s(render_ctx->textures[TEX_TILE].filename, L"../Textures/tile.dds");
+    load_texture(
+        render_ctx->device, render_ctx->direct_cmd_list,
+        render_ctx->textures[TEX_TILE].filename, &render_ctx->textures[TEX_TILE]
+    );
+
 #pragma endregion
 
     create_descriptor_heaps(render_ctx);
