@@ -240,29 +240,11 @@ create_materials (Material out_materials []) {
 
     strcpy_s(out_materials[MAT_SKULL_ID].name, "skull");
     out_materials[MAT_SKULL_ID].mat_cbuffer_index = 3;
-    out_materials[MAT_SKULL_ID].diffuse_srvheap_index = 2;
+    out_materials[MAT_SKULL_ID].diffuse_srvheap_index = 1;
     out_materials[MAT_SKULL_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_SKULL_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_SKULL_ID].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
     out_materials[MAT_SKULL_ID].roughness = 0.3f;
     out_materials[MAT_SKULL_ID].mat_transform = Identity4x4();
-}
-static float
-calc_hill_height (float x, float z) {
-    return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
-}
-static XMFLOAT3
-calc_hill_normal (float x, float z) {
-    // n = (-df/dx, 1, -df/dz)
-    XMFLOAT3 n(
-        -0.03f * z * cosf(0.1f * x) - 0.3f * cosf(0.1f * z),
-        1.0f,
-        -0.3f * sinf(0.1f * x) + 0.03f * x * sinf(0.1f * z)
-    );
-
-    XMVECTOR unit_normal = XMVector3Normalize(XMLoadFloat3(&n));
-    XMStoreFloat3(&n, unit_normal);
-
-    return n;
 }
 
 #define _BOX_VTX_CNT   24
@@ -309,7 +291,7 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
     GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(scratch + ssz_id);
     uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(scratch + csz);
 
-    create_box(1.5f, 0.5f, 1.5f, box_vertices, box_indices);
+    create_box(1.5f, 1.5f, 1.5f, box_vertices, box_indices);
     create_grid(20.0f, 30.0f, 60, 40, grid_vertices, grid_indices);
     create_sphere(0.5f, sphere_vertices, sphere_indices);
     create_cylinder(0.5f, 0.3f, 3.0f, cylinder_vertices, cylinder_indices);
@@ -478,7 +460,7 @@ create_skull_geometry (D3DRenderContext * render_ctx   /*, Vertex vertices [], u
             printf("read line: %s\n", linebuf);
             return;
         }
-        vertices[i].texc = XMFLOAT2(0.0f, 0.0f);    // not really texturing the skull diligently
+        vertices[i].texc = XMFLOAT2(0, 0);    // not really texturing the skull diligently
     }
     // -- skip three lines
     fgets(linebuf, sizeof(linebuf), f);
@@ -553,7 +535,8 @@ create_render_items (
 
     UINT _curr = 0;
 
-    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    // box
+    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
     render_items[_curr].tex_transform = Identity4x4();
     XMStoreFloat4x4(&render_items[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
@@ -580,7 +563,8 @@ create_render_items (
     render_items[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
     ++_curr;
 
-    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(0.5f, 0.5f, 0.5f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
+    // skull
+    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(0.2f, 0.2f, 0.2f) * XMMatrixTranslation(0.0f, 2.5f, 0.0f));
     XMStoreFloat4x4(&render_items[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
     render_items[_curr].geometry = skull_geom;
