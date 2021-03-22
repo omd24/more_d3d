@@ -35,8 +35,8 @@
 
 #define MAX_RENDERITEM_COUNT    50
 #define OBJ_COUNT               23
-#define MAT_COUNT               4
-#define TEX_COUNT               3
+#define MAT_COUNT               5   /* brick, stone, tile, skull, ice*/
+#define TEX_COUNT               4   /* brick stone tile ice*/
 
 #define GEOM_COUNT              2
 
@@ -58,12 +58,14 @@ enum MAT_INDEX {
     MAT_BRICK_ID = 0,
     MAT_STONE_ID = 1,
     MAT_TILE_ID = 2,
-    MAT_SKULL_ID = 3
+    MAT_SKULL_ID = 3,
+    MAT_ICE_ID = 4
 };
 enum TEX_INDEX {
     TEX_BRICK = 0,
     TEX_STONE = 1,
-    TEX_TILE = 2
+    TEX_TILE = 2,
+    TEX_ICE = 3
 };
 enum SAMPLER_INDEX {
     SAMPLER_POINT_WRAP = 0,
@@ -238,11 +240,19 @@ create_materials (Material out_materials []) {
     out_materials[MAT_TILE_ID].roughness = 0.2f;
     out_materials[MAT_TILE_ID].mat_transform = Identity4x4();
 
+    strcpy_s(out_materials[MAT_ICE_ID].name, "ice");
+    out_materials[MAT_ICE_ID].mat_cbuffer_index = 3;
+    out_materials[MAT_ICE_ID].diffuse_srvheap_index = 3;
+    out_materials[MAT_ICE_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_ICE_ID].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_ICE_ID].roughness = 0.3f;
+    out_materials[MAT_ICE_ID].mat_transform = Identity4x4();
+
     strcpy_s(out_materials[MAT_SKULL_ID].name, "skull");
-    out_materials[MAT_SKULL_ID].mat_cbuffer_index = 3;
+    out_materials[MAT_SKULL_ID].mat_cbuffer_index = 4;
     out_materials[MAT_SKULL_ID].diffuse_srvheap_index = 1;
-    out_materials[MAT_SKULL_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_SKULL_ID].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+    out_materials[MAT_SKULL_ID].diffuse_albedo = XMFLOAT4(Colors::Crimson);
+    out_materials[MAT_SKULL_ID].fresnel_r0 = XMFLOAT3(0.03f, 0.03f, 0.03f);
     out_materials[MAT_SKULL_ID].roughness = 0.3f;
     out_materials[MAT_SKULL_ID].mat_transform = Identity4x4();
 }
@@ -460,7 +470,28 @@ create_skull_geometry (D3DRenderContext * render_ctx   /*, Vertex vertices [], u
             printf("read line: %s\n", linebuf);
             return;
         }
-        vertices[i].texc = XMFLOAT2(0, 0);    // not really texturing the skull diligently
+
+#pragma region skull texture coordinates calculations
+        XMVECTOR P = XMLoadFloat3(&vertices[i].position);
+
+        // Project point onto unit sphere and generate spherical texture coordinates.
+        XMFLOAT3 shpere_pos;
+        XMStoreFloat3(&shpere_pos, XMVector3Normalize(P));
+
+        float theta = atan2f(shpere_pos.z, shpere_pos.x);
+
+        // Put in [0, 2pi].
+        if (theta < 0.0f)
+            theta += XM_2PI;
+
+        float phi = acosf(shpere_pos.y);
+
+        float u = theta / (2.0f * XM_PI);
+        float v = phi / XM_PI;
+
+        vertices[i].texc = {u, v};
+#pragma endregion
+
     }
     // -- skip three lines
     fgets(linebuf, sizeof(linebuf), f);
@@ -564,7 +595,7 @@ create_render_items (
     ++_curr;
 
     // skull
-    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(0.2f, 0.2f, 0.2f) * XMMatrixTranslation(0.0f, 2.5f, 0.0f));
+    XMStoreFloat4x4(&render_items[_curr].world, XMMatrixScaling(0.3f, 0.3f, 0.3f) * XMMatrixTranslation(0.0f, 2.5f, 0.0f));
     XMStoreFloat4x4(&render_items[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     render_items[_curr].obj_cbuffer_index = _curr;
     render_items[_curr].geometry = skull_geom;
@@ -720,6 +751,18 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
     descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
     render_ctx->device->CreateShaderResourceView(tile_tex, &srv_desc, descriptor_cpu_handle);
+
+    // ice texture
+    ID3D12Resource * ice_tex = render_ctx->textures[TEX_ICE].resource;
+    memset(&srv_desc, 0, sizeof(srv_desc)); // reset desc
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Format = ice_tex->GetDesc().Format;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Texture2D.MostDetailedMip = 0;
+    srv_desc.Texture2D.MipLevels = ice_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
+    descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
+    render_ctx->device->CreateShaderResourceView(ice_tex, &srv_desc, descriptor_cpu_handle);
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
@@ -1496,6 +1539,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     load_texture(
         render_ctx->device, render_ctx->direct_cmd_list,
         render_ctx->textures[TEX_TILE].filename, &render_ctx->textures[TEX_TILE]
+    );
+    // ice
+    strcpy_s(render_ctx->textures[TEX_ICE].name, "icetex");
+    wcscpy_s(render_ctx->textures[TEX_ICE].filename, L"../Textures/ice.dds");
+    load_texture(
+        render_ctx->device, render_ctx->direct_cmd_list,
+        render_ctx->textures[TEX_ICE].filename, &render_ctx->textures[TEX_ICE]
     );
 
 #pragma endregion
