@@ -1,7 +1,7 @@
 #pragma once
 
 #include <DirectXMath.h>
-#include <ppl.h>
+#include <ppl.h>    // Parallel Patterns Library
 #include "headers/common.h"
 
 using namespace DirectX;

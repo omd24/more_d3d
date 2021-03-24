@@ -153,6 +153,8 @@ struct FrameResource {
     UINT64 fence;
 };
 struct RenderItem {
+    bool initialized;
+
     // World matrix of the shape that describes the object's local space
     // relative to the world space, which defines the position, orientation,
     // and scale of the object in the world.

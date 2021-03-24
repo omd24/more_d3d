@@ -1,4 +1,6 @@
+
 #include "headers/common.h"
+
 
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
@@ -32,40 +34,41 @@
 // TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)
 #define NUM_BACKBUFFERS         2
 #define NUM_QUEUING_FRAMES      3
-#define NUM_STATIC_SAMPLERS     6
 
-#define MAX_RENDERITEM_COUNT    50
-#define OBJ_COUNT               3       /* crate, water and land */
-#define MAT_COUNT               3       /* crate, water and land */
-#define TEX_COUNT               3       /* crate, water and grass*/
+enum RENDER_LAYER : int {
+    OPAQUE_LAYER = 0,
+    TRANSPARENT_LAYER = 1,
+    ALPHATESTED_LAYER = 2,
 
-#define GEOM_COUNT              3       /* box geometry, water, land */
+    _COUNT_RENDER_LAYER
+};
+enum RITEM_INDEX {
+    RITEM_WATER = 0,
+    RITEM_GRID = 1,
+    RITEM_BOX = 2,
 
-//enum SUBMESH_INDEX {
-//    _BOX_ID,
-//    _GRID_ID,
-//    _SPHERE_ID,
-//    _CYLINDER_ID
-//};
-enum RENDERITEM_INDEX {
-    RITEM_WATER_ID = 0,
-    RITEM_GRID_ID = 1,
-    RITEM_BOX_ID = 2,
+    _COUNT_RENDERITEM
 };
 enum GEOM_INDEX {
     GEOM_BOX = 0,
     GEOM_WATER = 1,
     GEOM_GRID = 2,
+
+    _COUNT_GEOM
 };
 enum MAT_INDEX {
     MAT_WOOD_CRATE = 0,
-    MAT_GRASS_ID = 1,
-    MAT_WATER_ID = 2,
+    MAT_GRASS = 1,
+    MAT_WATER = 2,
+
+    _COUNT_MATERIAL
 };
 enum TEX_INDEX {
     TEX_CRATE01 = 0,
     TEX_WATER = 1,
-    TEX_GRASS = 2
+    TEX_GRASS = 2,
+
+    _COUNT_TEX
 };
 enum SAMPLER_INDEX {
     SAMPLER_POINT_WRAP = 0,
@@ -73,7 +76,9 @@ enum SAMPLER_INDEX {
     SAMPLER_LINEAR_WRAP = 2,
     SAMPLER_LINEAR_CLAMP = 3,
     SAMPLER_ANISOTROPIC_WRAP = 4,
-    SAMPLER_ANISOTROPIC_CLAMP = 5
+    SAMPLER_ANISOTROPIC_CLAMP = 5,
+
+    _COUNT_SAMPLER
 };
 struct SceneContext {
     // camera settings (spherical coordinate)
@@ -111,7 +116,7 @@ struct D3DRenderContext {
     IDXGISwapChain *                swapchain;
     ID3D12Device *                  device;
     ID3D12RootSignature *           root_signature;
-    ID3D12PipelineState *           pso;
+    ID3D12PipelineState *           psos[_COUNT_RENDER_LAYER];
 
     // Command objects
     ID3D12CommandQueue *            cmd_queue;
@@ -126,12 +131,14 @@ struct D3DRenderContext {
     ID3D12DescriptorHeap *          srv_heap;
 
     PassConstants                   main_pass_constants;
-
-    // render items
-    RenderItem                      render_items[OBJ_COUNT];    /* crate, water and land */
     UINT                            pass_cbv_offset;
 
-    MeshGeometry                    geom[GEOM_COUNT];
+    // List of all the render items.
+    RenderItem                      all_ritems[_COUNT_RENDERITEM];
+    // Render items divided by PSO.
+    RenderItem                      layer_ritems[_COUNT_RENDER_LAYER][_COUNT_RENDERITEM];
+
+    MeshGeometry                    geom[_COUNT_GEOM];
 
     // Synchronization stuff
     UINT                            frame_index;
@@ -145,8 +152,8 @@ struct D3DRenderContext {
 
     ID3D12Resource *                depth_stencil_buffer;
 
-    Material                        materials[MAT_COUNT];
-    Texture                         textures[TEX_COUNT];
+    Material                        materials[_COUNT_MATERIAL];
+    Texture                         textures[_COUNT_TEX];
 };
 
 static void
@@ -216,22 +223,22 @@ load_texture (
 }
 static void
 create_materials (Material out_materials []) {
-    strcpy_s(out_materials[MAT_GRASS_ID].name, "grass");
-    out_materials[MAT_GRASS_ID].mat_cbuffer_index = 0;
-    out_materials[MAT_GRASS_ID].diffuse_srvheap_index = 0;
-    out_materials[MAT_GRASS_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_GRASS_ID].fresnel_r0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-    out_materials[MAT_GRASS_ID].roughness = 0.125f;
-    out_materials[MAT_GRASS_ID].mat_transform = Identity4x4();
+    strcpy_s(out_materials[MAT_GRASS].name, "grass");
+    out_materials[MAT_GRASS].mat_cbuffer_index = 0;
+    out_materials[MAT_GRASS].diffuse_srvheap_index = 0;
+    out_materials[MAT_GRASS].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_GRASS].fresnel_r0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+    out_materials[MAT_GRASS].roughness = 0.125f;
+    out_materials[MAT_GRASS].mat_transform = Identity4x4();
 
     // -- not a good water material (we don't have transparency and env reflection rn)
-    strcpy_s(out_materials[MAT_WATER_ID].name, "water");
-    out_materials[MAT_WATER_ID].mat_cbuffer_index = 1;
-    out_materials[MAT_WATER_ID].diffuse_srvheap_index = 1;
-    out_materials[MAT_WATER_ID].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_WATER_ID].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-    out_materials[MAT_WATER_ID].roughness = 0.0f;
-    out_materials[MAT_WATER_ID].mat_transform = Identity4x4();
+    strcpy_s(out_materials[MAT_WATER].name, "water");
+    out_materials[MAT_WATER].mat_cbuffer_index = 1;
+    out_materials[MAT_WATER].diffuse_srvheap_index = 1;
+    out_materials[MAT_WATER].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_WATER].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+    out_materials[MAT_WATER].roughness = 0.0f;
+    out_materials[MAT_WATER].mat_transform = Identity4x4();
 
     strcpy_s(out_materials[MAT_WOOD_CRATE].name, "wood_crate");
     out_materials[MAT_WOOD_CRATE].mat_cbuffer_index = 2;
@@ -442,48 +449,55 @@ create_water_geometry (UINT nrow, UINT ncol, UINT ntri, D3DRenderContext * rende
 }
 static void
 create_render_items (
-    RenderItem render_items [],
+    RenderItem all_ritems [],
+    RenderItem layer_ritems[_COUNT_RENDER_LAYER][_COUNT_RENDERITEM],
     MeshGeometry * box_geom, MeshGeometry * water_geom, MeshGeometry * grid_geom,
     Material materials []
 ) {
-    render_items[RITEM_WATER_ID].world = Identity4x4();
-    render_items[RITEM_WATER_ID].tex_transform = Identity4x4();
-    XMStoreFloat4x4(&render_items[RITEM_WATER_ID].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
-    render_items[RITEM_WATER_ID].obj_cbuffer_index = 0;
-    render_items[RITEM_WATER_ID].mat = &materials[MAT_WATER_ID];
-    render_items[RITEM_WATER_ID].geometry = water_geom;
-    render_items[RITEM_WATER_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[RITEM_WATER_ID].index_count = water_geom->submesh_geoms[0].index_count;
-    render_items[RITEM_WATER_ID].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
-    render_items[RITEM_WATER_ID].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
-    render_items[RITEM_WATER_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[RITEM_WATER_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_WATER].world = Identity4x4();
+    all_ritems[RITEM_WATER].tex_transform = Identity4x4();
+    XMStoreFloat4x4(&all_ritems[RITEM_WATER].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
+    all_ritems[RITEM_WATER].obj_cbuffer_index = 0;
+    all_ritems[RITEM_WATER].mat = &materials[MAT_WATER];
+    all_ritems[RITEM_WATER].geometry = water_geom;
+    all_ritems[RITEM_WATER].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    all_ritems[RITEM_WATER].index_count = water_geom->submesh_geoms[0].index_count;
+    all_ritems[RITEM_WATER].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
+    all_ritems[RITEM_WATER].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
+    all_ritems[RITEM_WATER].n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_WATER].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_WATER].initialized = true;
+    layer_ritems[TRANSPARENT_LAYER][RITEM_WATER] = all_ritems[RITEM_WATER];
 
-    render_items[RITEM_GRID_ID].world = Identity4x4();
-    render_items[RITEM_GRID_ID].tex_transform = Identity4x4();
-    XMStoreFloat4x4(&render_items[RITEM_GRID_ID].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
-    render_items[RITEM_GRID_ID].obj_cbuffer_index = 1;
-    render_items[RITEM_GRID_ID].mat = &materials[MAT_GRASS_ID];
-    render_items[RITEM_GRID_ID].geometry = grid_geom;
-    render_items[RITEM_GRID_ID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[RITEM_GRID_ID].index_count = grid_geom->submesh_geoms[0].index_count;
-    render_items[RITEM_GRID_ID].start_index_loc = grid_geom->submesh_geoms[0].start_index_location;
-    render_items[RITEM_GRID_ID].base_vertex_loc = grid_geom->submesh_geoms[0].base_vertex_location;
-    render_items[RITEM_GRID_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[RITEM_GRID_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_GRID].world = Identity4x4();
+    all_ritems[RITEM_GRID].tex_transform = Identity4x4();
+    XMStoreFloat4x4(&all_ritems[RITEM_GRID].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
+    all_ritems[RITEM_GRID].obj_cbuffer_index = 1;
+    all_ritems[RITEM_GRID].mat = &materials[MAT_GRASS];
+    all_ritems[RITEM_GRID].geometry = grid_geom;
+    all_ritems[RITEM_GRID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    all_ritems[RITEM_GRID].index_count = grid_geom->submesh_geoms[0].index_count;
+    all_ritems[RITEM_GRID].start_index_loc = grid_geom->submesh_geoms[0].start_index_location;
+    all_ritems[RITEM_GRID].base_vertex_loc = grid_geom->submesh_geoms[0].base_vertex_location;
+    all_ritems[RITEM_GRID].n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_GRID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_GRID].initialized = true;
+    layer_ritems[OPAQUE_LAYER][RITEM_GRID] = all_ritems[RITEM_GRID];
 
-    render_items[RITEM_BOX_ID].world = Identity4x4();
-    XMStoreFloat4x4(&render_items[RITEM_BOX_ID].world, XMMatrixTranslation(3.0f, 2.0f, -9.0f));
-    render_items[RITEM_BOX_ID].tex_transform = Identity4x4();
-    render_items[RITEM_BOX_ID].obj_cbuffer_index = 2;
-    render_items[RITEM_BOX_ID].geometry = box_geom;
-    render_items[RITEM_BOX_ID].mat = &materials[MAT_WOOD_CRATE];
-    render_items[RITEM_BOX_ID].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    render_items[RITEM_BOX_ID].index_count = box_geom->submesh_geoms[0].index_count;
-    render_items[RITEM_BOX_ID].start_index_loc = box_geom->submesh_geoms[0].start_index_location;
-    render_items[RITEM_BOX_ID].base_vertex_loc = box_geom->submesh_geoms[0].base_vertex_location;
-    render_items[RITEM_BOX_ID].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_items[RITEM_BOX_ID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_BOX].world = Identity4x4();
+    XMStoreFloat4x4(&all_ritems[RITEM_BOX].world, XMMatrixTranslation(3.0f, 2.0f, -9.0f));
+    all_ritems[RITEM_BOX].tex_transform = Identity4x4();
+    all_ritems[RITEM_BOX].obj_cbuffer_index = 2;
+    all_ritems[RITEM_BOX].geometry = box_geom;
+    all_ritems[RITEM_BOX].mat = &materials[MAT_WOOD_CRATE];
+    all_ritems[RITEM_BOX].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    all_ritems[RITEM_BOX].index_count = box_geom->submesh_geoms[0].index_count;
+    all_ritems[RITEM_BOX].start_index_loc = box_geom->submesh_geoms[0].start_index_location;
+    all_ritems[RITEM_BOX].base_vertex_loc = box_geom->submesh_geoms[0].base_vertex_location;
+    all_ritems[RITEM_BOX].n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_BOX].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems[RITEM_BOX].initialized = true;
+    layer_ritems[OPAQUE_LAYER][RITEM_BOX] = all_ritems[RITEM_BOX];
 }
 // -- indexed drawing
 static void
@@ -493,31 +507,33 @@ draw_render_items (
     ID3D12Resource * mat_cbuffer,
     UINT64 descriptor_increment_size,
     ID3D12DescriptorHeap * srv_heap,
-    RenderItem render_items [],
+    RenderItem render_items [], // TODO(omid): pass pointer to renderitems
     UINT current_frame_index
 ) {
     UINT objcb_byte_size = (UINT64)sizeof(ObjectConstants);
     UINT matcb_byte_size = (UINT64)sizeof(MaterialConstants);
-    for (size_t i = 0; i < OBJ_COUNT; ++i) {
-        D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
-        D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
-        cmd_list->IASetVertexBuffers(0, 1, &vbv);
-        cmd_list->IASetIndexBuffer(&ibv);
-        cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
+    for (size_t i = 0; i < _COUNT_RENDERITEM; ++i) {
+        if (render_items[i].initialized) {
+            D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
+            D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
+            cmd_list->IASetVertexBuffers(0, 1, &vbv);
+            cmd_list->IASetIndexBuffer(&ibv);
+            cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
 
-        D3D12_GPU_DESCRIPTOR_HANDLE tex = srv_heap->GetGPUDescriptorHandleForHeapStart();
-        tex.ptr += descriptor_increment_size * render_items[i].mat->diffuse_srvheap_index;
+            D3D12_GPU_DESCRIPTOR_HANDLE tex = srv_heap->GetGPUDescriptorHandleForHeapStart();
+            tex.ptr += descriptor_increment_size * render_items[i].mat->diffuse_srvheap_index;
 
-        D3D12_GPU_VIRTUAL_ADDRESS objcb_address = object_cbuffer->GetGPUVirtualAddress();
-        objcb_address += (UINT64)render_items[i].obj_cbuffer_index * objcb_byte_size;
+            D3D12_GPU_VIRTUAL_ADDRESS objcb_address = object_cbuffer->GetGPUVirtualAddress();
+            objcb_address += (UINT64)render_items[i].obj_cbuffer_index * objcb_byte_size;
 
-        D3D12_GPU_VIRTUAL_ADDRESS matcb_address = mat_cbuffer->GetGPUVirtualAddress();
-        matcb_address += (UINT64)render_items[i].mat->mat_cbuffer_index * matcb_byte_size;
+            D3D12_GPU_VIRTUAL_ADDRESS matcb_address = mat_cbuffer->GetGPUVirtualAddress();
+            matcb_address += (UINT64)render_items[i].mat->mat_cbuffer_index * matcb_byte_size;
 
-        cmd_list->SetGraphicsRootDescriptorTable(0, tex);
-        cmd_list->SetGraphicsRootConstantBufferView(1, objcb_address);
-        cmd_list->SetGraphicsRootConstantBufferView(3, matcb_address);
-        cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
+            cmd_list->SetGraphicsRootDescriptorTable(0, tex);
+            cmd_list->SetGraphicsRootConstantBufferView(1, objcb_address);
+            cmd_list->SetGraphicsRootConstantBufferView(3, matcb_address);
+            cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
+        }
     }
 }
 static void
@@ -525,7 +541,7 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
     // Create Shader Resource View descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
-    srv_heap_desc.NumDescriptors = TEX_COUNT;
+    srv_heap_desc.NumDescriptors = _COUNT_TEX;
     srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     render_ctx->device->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&render_ctx->srv_heap));
@@ -713,14 +729,14 @@ create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signat
     slot_root_params[3].Descriptor.RegisterSpace = 0;
     slot_root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-    D3D12_STATIC_SAMPLER_DESC samplers[NUM_STATIC_SAMPLERS] = {};
+    D3D12_STATIC_SAMPLER_DESC samplers[_COUNT_SAMPLER] = {};
     get_static_samplers(samplers);
 
     // A root signature is an array of root parameters.
     D3D12_ROOT_SIGNATURE_DESC root_sig_desc = {};
     root_sig_desc.NumParameters = 4;
     root_sig_desc.pParameters = slot_root_params;
-    root_sig_desc.NumStaticSamplers = NUM_STATIC_SAMPLERS;
+    root_sig_desc.NumStaticSamplers = _COUNT_SAMPLER;
     root_sig_desc.pStaticSamplers = samplers;
     root_sig_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -735,7 +751,7 @@ create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signat
     device->CreateRootSignature(0, serialized_root_sig->GetBufferPointer(), serialized_root_sig->GetBufferSize(), IID_PPV_ARGS(root_signature));
 }
 static void
-create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBlob * pixel_shader_code) {
+create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBlob * pixel_shader_code_opaque, IDxcBlob * pixel_shader_code_alphatested) {
     // -- Create vertex-input-layout Elements
 
     D3D12_INPUT_ELEMENT_DESC input_desc[3];
@@ -763,8 +779,9 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     input_desc[2].AlignedByteOffset = 24; // bc of the position and normal
     input_desc[2].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 
-    // -- Create pipeline state object
-
+    //
+    // -- Create PSO for Opaque objs
+    //
     D3D12_BLEND_DESC def_blend_desc = {};
     def_blend_desc.AlphaToCoverageEnable = FALSE;
     def_blend_desc.IndependentBlendEnable = FALSE;
@@ -802,26 +819,53 @@ create_pso (D3DRenderContext * render_ctx, IDxcBlob * vertex_shader_code, IDxcBl
     ds_desc.FrontFace = def_stencil_op;
     ds_desc.BackFace = def_stencil_op;
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
-    pso_desc.pRootSignature = render_ctx->root_signature;
-    pso_desc.VS.pShaderBytecode = vertex_shader_code->GetBufferPointer();
-    pso_desc.VS.BytecodeLength = vertex_shader_code->GetBufferSize();
-    pso_desc.PS.pShaderBytecode = pixel_shader_code->GetBufferPointer();
-    pso_desc.PS.BytecodeLength = pixel_shader_code->GetBufferSize();
-    pso_desc.BlendState = def_blend_desc;
-    pso_desc.SampleMask = UINT_MAX;
-    pso_desc.RasterizerState = def_rasterizer_desc;
-    pso_desc.DepthStencilState = ds_desc;
-    pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    pso_desc.InputLayout.pInputElementDescs = input_desc;
-    pso_desc.InputLayout.NumElements = ARRAY_COUNT(input_desc);
-    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pso_desc.NumRenderTargets = 1;
-    pso_desc.RTVFormats[0] = DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM;
-    pso_desc.SampleDesc.Count = 1;
-    pso_desc.SampleDesc.Quality = 0;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaque_pso_desc = {};
+    opaque_pso_desc.pRootSignature = render_ctx->root_signature;
+    opaque_pso_desc.VS.pShaderBytecode = vertex_shader_code->GetBufferPointer();
+    opaque_pso_desc.VS.BytecodeLength = vertex_shader_code->GetBufferSize();
+    opaque_pso_desc.PS.pShaderBytecode = pixel_shader_code_opaque->GetBufferPointer();
+    opaque_pso_desc.PS.BytecodeLength = pixel_shader_code_opaque->GetBufferSize();
+    opaque_pso_desc.BlendState = def_blend_desc;
+    opaque_pso_desc.SampleMask = UINT_MAX;
+    opaque_pso_desc.RasterizerState = def_rasterizer_desc;
+    opaque_pso_desc.DepthStencilState = ds_desc;
+    opaque_pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    opaque_pso_desc.InputLayout.pInputElementDescs = input_desc;
+    opaque_pso_desc.InputLayout.NumElements = ARRAY_COUNT(input_desc);
+    opaque_pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaque_pso_desc.NumRenderTargets = 1;
+    opaque_pso_desc.RTVFormats[0] = DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM;
+    opaque_pso_desc.SampleDesc.Count = 1;
+    opaque_pso_desc.SampleDesc.Quality = 0;
 
-    CHECK_AND_FAIL(render_ctx->device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&render_ctx->pso)));
+    render_ctx->device->CreateGraphicsPipelineState(&opaque_pso_desc, IID_PPV_ARGS(&render_ctx->psos[OPAQUE_LAYER]));
+    //
+    // -- Create PSO for Transparent objs
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC transparent_pso_desc = opaque_pso_desc;
+
+    D3D12_RENDER_TARGET_BLEND_DESC transparency_blend_desc = {};
+    transparency_blend_desc.BlendEnable = true;
+    transparency_blend_desc.LogicOpEnable = false;
+    transparency_blend_desc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    transparency_blend_desc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    transparency_blend_desc.BlendOp = D3D12_BLEND_OP_ADD;
+    transparency_blend_desc.SrcBlendAlpha = D3D12_BLEND_ONE;
+    transparency_blend_desc.DestBlendAlpha = D3D12_BLEND_ZERO;
+    transparency_blend_desc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    transparency_blend_desc.LogicOp = D3D12_LOGIC_OP_NOOP;
+    transparency_blend_desc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    transparent_pso_desc.BlendState.RenderTarget[0] = transparency_blend_desc;
+    render_ctx->device->CreateGraphicsPipelineState(&transparent_pso_desc, IID_PPV_ARGS(&render_ctx->psos[TRANSPARENT_LAYER]));
+    //
+    // -- Create PSO for AlphaTested objs
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC alpha_pso_desc = opaque_pso_desc;
+    alpha_pso_desc.PS.pShaderBytecode = pixel_shader_code_alphatested->GetBufferPointer();
+    alpha_pso_desc.PS.BytecodeLength = pixel_shader_code_alphatested->GetBufferSize();
+    alpha_pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    render_ctx->device->CreateGraphicsPipelineState(&alpha_pso_desc, IID_PPV_ARGS(&render_ctx->psos[ALPHATESTED_LAYER]));
 }
 static void
 handle_keyboard_input (SceneContext * scene_ctx, GameTimer * gt) {
@@ -889,11 +933,14 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
     UINT cbuffer_size = sizeof(ObjectConstants);
     // Only update the cbuffer data if the constants have changed.  
     // This needs to be tracked per frame resource.
-    for (unsigned i = 0; i < OBJ_COUNT; i++) {
-        if (render_ctx->render_items[i].n_frames_dirty > 0) {
-            UINT obj_index = render_ctx->render_items[i].obj_cbuffer_index;
-            XMMATRIX world = XMLoadFloat4x4(&render_ctx->render_items[i].world);
-            XMMATRIX tex_transform = XMLoadFloat4x4(&render_ctx->render_items[i].tex_transform);
+    for (unsigned i = 0; i < _COUNT_RENDERITEM; i++) {
+        if (
+            render_ctx->all_ritems[i].n_frames_dirty > 0 &&
+            render_ctx->all_ritems[i].initialized
+            ) {
+            UINT obj_index = render_ctx->all_ritems[i].obj_cbuffer_index;
+            XMMATRIX world = XMLoadFloat4x4(&render_ctx->all_ritems[i].world);
+            XMMATRIX tex_transform = XMLoadFloat4x4(&render_ctx->all_ritems[i].tex_transform);
 
             ObjectConstants obj_cbuffer = {};
             XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
@@ -903,7 +950,7 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
             memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
 
             // Next FrameResource need to be updated too.
-            render_ctx->render_items[i].n_frames_dirty--;
+            render_ctx->all_ritems[i].n_frames_dirty--;
         }
     }
 }
@@ -911,7 +958,7 @@ static void
 update_mat_cbuffers (D3DRenderContext * render_ctx) {
     UINT frame_index = render_ctx->frame_index;
     UINT cbuffer_size = sizeof(MaterialConstants);
-    for (int i = 0; i < MAT_COUNT; ++i) {
+    for (int i = 0; i < _COUNT_MATERIAL; ++i) {
         // Only update the cbuffer data if the constants have changed.  If the cbuffer
         // data changes, it needs to be updated for each FrameResource.
         Material * mat = &render_ctx->materials[i];
@@ -1058,7 +1105,7 @@ update_waves_vb (Waves * waves, D3DRenderContext * render_ctx, GameTimer * timer
     // NOTE(omid): We did the upload_buffer mapping to data pointer (when creating the upload_buffer)
 
     // Set the dynamic VB of the wave renderitem to the current frame VB.
-    render_ctx->render_items[RITEM_WATER_ID].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
+    render_ctx->all_ritems[RITEM_WATER].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
@@ -1140,7 +1187,7 @@ draw_main (D3DRenderContext * render_ctx) {
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    ret = render_ctx->direct_cmd_list->Reset(render_ctx->frame_resources[frame_index].cmd_list_alloc, render_ctx->pso);
+    ret = render_ctx->direct_cmd_list->Reset(render_ctx->frame_resources[frame_index].cmd_list_alloc, render_ctx->psos[OPAQUE_LAYER]);
     CHECK_AND_FAIL(ret);
 
     // -- set viewport and scissor
@@ -1175,7 +1222,7 @@ draw_main (D3DRenderContext * render_ctx) {
         render_ctx->frame_resources[frame_index].mat_cb,
         render_ctx->cbv_srv_uav_descriptor_size,
         render_ctx->srv_heap,
-        render_ctx->render_items, frame_index
+        render_ctx->all_ritems, frame_index
     );
 
     // -- indicate that the backbuffer will now be used to present
@@ -1381,7 +1428,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->device->CreateCommandList(
             0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             render_ctx->direct_cmd_list_alloc,
-            render_ctx->pso, IID_PPV_ARGS(&render_ctx->direct_cmd_list)
+            render_ctx->psos[OPAQUE_LAYER], IID_PPV_ARGS(&render_ctx->direct_cmd_list)
         );
 
         // Reset the command list to prep for initialization commands.
@@ -1525,11 +1572,11 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         res = render_ctx->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&render_ctx->frame_resources[i].cmd_list_alloc));
 
         // -- create cbuffers as upload_buffer
-        create_upload_buffer(render_ctx->device, (UINT64)obj_cb_size * OBJ_COUNT, &render_ctx->frame_resources[i].obj_cb_data_ptr, &render_ctx->frame_resources[i].obj_cb);
+        create_upload_buffer(render_ctx->device, (UINT64)obj_cb_size * _COUNT_RENDERITEM, &render_ctx->frame_resources[i].obj_cb_data_ptr, &render_ctx->frame_resources[i].obj_cb);
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].obj_cb_data_ptr, &render_ctx->frame_resources[i].obj_cb_data, sizeof(render_ctx->frame_resources[i].obj_cb_data));
 
-        create_upload_buffer(render_ctx->device, (UINT64)mat_cb_size * MAT_COUNT, &render_ctx->frame_resources[i].mat_cb_data_ptr, &render_ctx->frame_resources[i].mat_cb);
+        create_upload_buffer(render_ctx->device, (UINT64)mat_cb_size * _COUNT_MATERIAL, &render_ctx->frame_resources[i].mat_cb_data_ptr, &render_ctx->frame_resources[i].mat_cb);
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].mat_cb_data_ptr, &render_ctx->frame_resources[i].mat_cb_data, sizeof(render_ctx->frame_resources[i].mat_cb_data));
 
@@ -1595,7 +1642,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma endregion Compile_Shaders
 
 #pragma region PSO_Creation
-    create_pso(render_ctx, vertex_shader_code, pixel_shader_code);
+    create_pso(render_ctx, vertex_shader_code, pixel_shader_code, pixel_shader_code);
 #pragma endregion PSO_Creation
 
 #pragma region Shapes_And_Renderitem_Creation
@@ -1605,7 +1652,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     create_shape_geometry(render_ctx);
     create_materials(render_ctx->materials);
     create_render_items(
-        render_ctx->render_items,
+        render_ctx->all_ritems,
+        render_ctx->layer_ritems,
         &render_ctx->geom[GEOM_BOX],
         &render_ctx->geom[GEOM_WATER],
         &render_ctx->geom[GEOM_GRID],
@@ -1660,7 +1708,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
         Timer_Tick(&global_timer);
 
-        animate_material(&render_ctx->materials[MAT_WATER_ID], &global_timer);
+        animate_material(&render_ctx->materials[MAT_WATER], &global_timer);
 
         handle_keyboard_input(&global_scene_ctx, &global_timer);
         update_camera(&global_scene_ctx);
@@ -1697,7 +1745,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
         render_ctx->frame_resources[i].cmd_list_alloc->Release();
     }
-    for (unsigned i = 0; i < GEOM_COUNT; i++) {
+    for (unsigned i = 0; i < _COUNT_GEOM; i++) {
         render_ctx->geom[i].ib_uploader->Release();
         if (i != GEOM_WATER)    // water uses a dynamic vb
             render_ctx->geom[i].vb_uploader->Release();
@@ -1706,7 +1754,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->geom[i].vb_gpu->Release();
     }
 
-    render_ctx->pso->Release();
+    for (int i = 0; i < _COUNT_RENDER_LAYER; ++i) {
+        render_ctx->psos[i]->Release();
+    }
 
     pixel_shader_code->Release();
     vertex_shader_code->Release();
@@ -1724,7 +1774,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     render_ctx->depth_stencil_buffer->Release();
 
-    for (unsigned i = 0; i < TEX_COUNT; i++) {
+    for (unsigned i = 0; i < _COUNT_TEX; i++) {
         render_ctx->textures[i].upload_heap->Release();
         render_ctx->textures[i].resource->Release();
     }
