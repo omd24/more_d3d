@@ -237,11 +237,10 @@ create_materials (Material out_materials []) {
     out_materials[MAT_GRASS].roughness = 0.125f;
     out_materials[MAT_GRASS].mat_transform = Identity4x4();
 
-    // -- not a good water material (we don't have transparency and env reflection rn)
     strcpy_s(out_materials[MAT_WATER].name, "water");
     out_materials[MAT_WATER].mat_cbuffer_index = 1;
     out_materials[MAT_WATER].diffuse_srvheap_index = 1;
-    out_materials[MAT_WATER].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_WATER].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
     out_materials[MAT_WATER].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
     out_materials[MAT_WATER].roughness = 0.0f;
     out_materials[MAT_WATER].mat_transform = Identity4x4();
@@ -510,8 +509,8 @@ create_render_items (
     all_ritems->ritems[RITEM_BOX].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
     all_ritems->ritems[RITEM_BOX].initialized = true;
     all_ritems->size++;
-    opaque_ritems->ritems[1] = all_ritems->ritems[RITEM_BOX];
-    opaque_ritems->size++;
+    alphatested_ritems->ritems[0] = all_ritems->ritems[RITEM_BOX];
+    alphatested_ritems->size++;
 }
 // -- indexed drawing
 static void
@@ -521,7 +520,7 @@ draw_render_items (
     ID3D12Resource * mat_cbuffer,
     UINT64 descriptor_increment_size,
     ID3D12DescriptorHeap * srv_heap,
-    RenderItemArray * ritem_array, // TODO(omid): pass pointer to renderitems
+    RenderItemArray * ritem_array,
     UINT current_frame_index
 ) {
     UINT objcb_byte_size = (UINT64)sizeof(ObjectConstants);
@@ -1230,13 +1229,34 @@ draw_main (D3DRenderContext * render_ctx) {
     ID3D12Resource * pass_cb = render_ctx->frame_resources[frame_index].pass_cb;
     render_ctx->direct_cmd_list->SetGraphicsRootConstantBufferView(2, pass_cb->GetGPUVirtualAddress());
 
+    // 1. draw opaque objs first (opaque pso is currently used)
     draw_render_items(
         render_ctx->direct_cmd_list,
         render_ctx->frame_resources[frame_index].obj_cb,
         render_ctx->frame_resources[frame_index].mat_cb,
         render_ctx->cbv_srv_uav_descriptor_size,
         render_ctx->srv_heap,
-        &render_ctx->all_ritems, frame_index
+        &render_ctx->opaque_ritems, frame_index
+    );
+    // 2. draw alpha-tested obj(s)
+    render_ctx->direct_cmd_list->SetPipelineState(render_ctx->psos[ALPHATESTED_LAYER]);
+    draw_render_items(
+        render_ctx->direct_cmd_list,
+        render_ctx->frame_resources[frame_index].obj_cb,
+        render_ctx->frame_resources[frame_index].mat_cb,
+        render_ctx->cbv_srv_uav_descriptor_size,
+        render_ctx->srv_heap,
+        &render_ctx->alphatested_ritems, frame_index
+    );
+    // 3. draw transparent objs
+    render_ctx->direct_cmd_list->SetPipelineState(render_ctx->psos[TRANSPARENT_LAYER]);
+    draw_render_items(
+        render_ctx->direct_cmd_list,
+        render_ctx->frame_resources[frame_index].obj_cb,
+        render_ctx->frame_resources[frame_index].mat_cb,
+        render_ctx->cbv_srv_uav_descriptor_size,
+        render_ctx->srv_heap,
+        &render_ctx->transparent_ritems, frame_index
     );
 
     // -- indicate that the backbuffer will now be used to present
@@ -1724,13 +1744,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
         Timer_Tick(&global_timer);
 
-        animate_material(&render_ctx->materials[MAT_WATER], &global_timer);
-
         handle_keyboard_input(&global_scene_ctx, &global_timer);
         update_camera(&global_scene_ctx);
-        update_pass_cbuffers(render_ctx, &global_timer);
-        update_mat_cbuffers(render_ctx);
+
+        animate_material(&render_ctx->materials[MAT_WATER], &global_timer);
         update_obj_cbuffers(render_ctx);
+        update_mat_cbuffers(render_ctx);
+        update_pass_cbuffers(render_ctx, &global_timer);
 
         update_waves_vb(waves, render_ctx, &global_timer);
 
