@@ -42,7 +42,7 @@ enum RENDER_LAYER : int {
 
     _COUNT_RENDER_LAYER
 };
-enum RITEM_INDEX {
+enum ALL_RENDERITEMS {
     RITEM_WATER = 0,
     RITEM_GRID = 1,
     RITEM_BOX = 2,
@@ -108,6 +108,10 @@ GameTimer global_timer;
 bool global_running;
 SceneContext global_scene_ctx;
 
+struct RenderItemArray {
+    RenderItem  ritems[_COUNT_RENDERITEM];
+    uint32_t    size;
+};
 struct D3DRenderContext {
     // Pipeline stuff
     D3D12_VIEWPORT                  viewport;
@@ -134,9 +138,11 @@ struct D3DRenderContext {
     UINT                            pass_cbv_offset;
 
     // List of all the render items.
-    RenderItem                      all_ritems[_COUNT_RENDERITEM];
+    RenderItemArray                 all_ritems;
     // Render items divided by PSO.
-    RenderItem                      layer_ritems[_COUNT_RENDER_LAYER][_COUNT_RENDERITEM];
+    RenderItemArray                 opaque_ritems;
+    RenderItemArray                 transparent_ritems;
+    RenderItemArray                 alphatested_ritems;
 
     MeshGeometry                    geom[_COUNT_GEOM];
 
@@ -449,55 +455,63 @@ create_water_geometry (UINT nrow, UINT ncol, UINT ntri, D3DRenderContext * rende
 }
 static void
 create_render_items (
-    RenderItem all_ritems [],
-    RenderItem layer_ritems[_COUNT_RENDER_LAYER][_COUNT_RENDERITEM],
+    RenderItemArray * all_ritems,
+    RenderItemArray * opaque_ritems,
+    RenderItemArray * transparent_ritems,
+    RenderItemArray * alphatested_ritems,
     MeshGeometry * box_geom, MeshGeometry * water_geom, MeshGeometry * grid_geom,
     Material materials []
 ) {
-    all_ritems[RITEM_WATER].world = Identity4x4();
-    all_ritems[RITEM_WATER].tex_transform = Identity4x4();
-    XMStoreFloat4x4(&all_ritems[RITEM_WATER].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
-    all_ritems[RITEM_WATER].obj_cbuffer_index = 0;
-    all_ritems[RITEM_WATER].mat = &materials[MAT_WATER];
-    all_ritems[RITEM_WATER].geometry = water_geom;
-    all_ritems[RITEM_WATER].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    all_ritems[RITEM_WATER].index_count = water_geom->submesh_geoms[0].index_count;
-    all_ritems[RITEM_WATER].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
-    all_ritems[RITEM_WATER].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
-    all_ritems[RITEM_WATER].n_frames_dirty = NUM_QUEUING_FRAMES;
-    all_ritems[RITEM_WATER].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-    all_ritems[RITEM_WATER].initialized = true;
-    layer_ritems[TRANSPARENT_LAYER][RITEM_WATER] = all_ritems[RITEM_WATER];
+    all_ritems->ritems[RITEM_WATER].world = Identity4x4();
+    all_ritems->ritems[RITEM_WATER].tex_transform = Identity4x4();
+    XMStoreFloat4x4(&all_ritems->ritems[RITEM_WATER].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
+    all_ritems->ritems[RITEM_WATER].obj_cbuffer_index = 0;
+    all_ritems->ritems[RITEM_WATER].mat = &materials[MAT_WATER];
+    all_ritems->ritems[RITEM_WATER].geometry = water_geom;
+    all_ritems->ritems[RITEM_WATER].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    all_ritems->ritems[RITEM_WATER].index_count = water_geom->submesh_geoms[0].index_count;
+    all_ritems->ritems[RITEM_WATER].start_index_loc = water_geom->submesh_geoms[0].start_index_location;
+    all_ritems->ritems[RITEM_WATER].base_vertex_loc = water_geom->submesh_geoms[0].base_vertex_location;
+    all_ritems->ritems[RITEM_WATER].n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems->ritems[RITEM_WATER].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems->ritems[RITEM_WATER].initialized = true;
+    all_ritems->size++;
+    transparent_ritems->ritems[0] = all_ritems->ritems[RITEM_WATER];
+    transparent_ritems->size++;
 
-    all_ritems[RITEM_GRID].world = Identity4x4();
-    all_ritems[RITEM_GRID].tex_transform = Identity4x4();
-    XMStoreFloat4x4(&all_ritems[RITEM_GRID].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
-    all_ritems[RITEM_GRID].obj_cbuffer_index = 1;
-    all_ritems[RITEM_GRID].mat = &materials[MAT_GRASS];
-    all_ritems[RITEM_GRID].geometry = grid_geom;
-    all_ritems[RITEM_GRID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    all_ritems[RITEM_GRID].index_count = grid_geom->submesh_geoms[0].index_count;
-    all_ritems[RITEM_GRID].start_index_loc = grid_geom->submesh_geoms[0].start_index_location;
-    all_ritems[RITEM_GRID].base_vertex_loc = grid_geom->submesh_geoms[0].base_vertex_location;
-    all_ritems[RITEM_GRID].n_frames_dirty = NUM_QUEUING_FRAMES;
-    all_ritems[RITEM_GRID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-    all_ritems[RITEM_GRID].initialized = true;
-    layer_ritems[OPAQUE_LAYER][RITEM_GRID] = all_ritems[RITEM_GRID];
+    all_ritems->ritems[RITEM_GRID].world = Identity4x4();
+    all_ritems->ritems[RITEM_GRID].tex_transform = Identity4x4();
+    XMStoreFloat4x4(&all_ritems->ritems[RITEM_GRID].tex_transform, XMMatrixScaling(5.0f, 5.0f, 1.0f));
+    all_ritems->ritems[RITEM_GRID].obj_cbuffer_index = 1;
+    all_ritems->ritems[RITEM_GRID].mat = &materials[MAT_GRASS];
+    all_ritems->ritems[RITEM_GRID].geometry = grid_geom;
+    all_ritems->ritems[RITEM_GRID].primitive_type = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    all_ritems->ritems[RITEM_GRID].index_count = grid_geom->submesh_geoms[0].index_count;
+    all_ritems->ritems[RITEM_GRID].start_index_loc = grid_geom->submesh_geoms[0].start_index_location;
+    all_ritems->ritems[RITEM_GRID].base_vertex_loc = grid_geom->submesh_geoms[0].base_vertex_location;
+    all_ritems->ritems[RITEM_GRID].n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems->ritems[RITEM_GRID].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems->ritems[RITEM_GRID].initialized = true;
+    all_ritems->size++;
+    opaque_ritems->ritems[0] = all_ritems->ritems[RITEM_GRID];
+    opaque_ritems->size++;
 
-    all_ritems[RITEM_BOX].world = Identity4x4();
-    XMStoreFloat4x4(&all_ritems[RITEM_BOX].world, XMMatrixTranslation(3.0f, 2.0f, -9.0f));
-    all_ritems[RITEM_BOX].tex_transform = Identity4x4();
-    all_ritems[RITEM_BOX].obj_cbuffer_index = 2;
-    all_ritems[RITEM_BOX].geometry = box_geom;
-    all_ritems[RITEM_BOX].mat = &materials[MAT_WOOD_CRATE];
-    all_ritems[RITEM_BOX].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    all_ritems[RITEM_BOX].index_count = box_geom->submesh_geoms[0].index_count;
-    all_ritems[RITEM_BOX].start_index_loc = box_geom->submesh_geoms[0].start_index_location;
-    all_ritems[RITEM_BOX].base_vertex_loc = box_geom->submesh_geoms[0].base_vertex_location;
-    all_ritems[RITEM_BOX].n_frames_dirty = NUM_QUEUING_FRAMES;
-    all_ritems[RITEM_BOX].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
-    all_ritems[RITEM_BOX].initialized = true;
-    layer_ritems[OPAQUE_LAYER][RITEM_BOX] = all_ritems[RITEM_BOX];
+    all_ritems->ritems[RITEM_BOX].world = Identity4x4();
+    XMStoreFloat4x4(&all_ritems->ritems[RITEM_BOX].world, XMMatrixTranslation(3.0f, 2.0f, -9.0f));
+    all_ritems->ritems[RITEM_BOX].tex_transform = Identity4x4();
+    all_ritems->ritems[RITEM_BOX].obj_cbuffer_index = 2;
+    all_ritems->ritems[RITEM_BOX].geometry = box_geom;
+    all_ritems->ritems[RITEM_BOX].mat = &materials[MAT_WOOD_CRATE];
+    all_ritems->ritems[RITEM_BOX].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    all_ritems->ritems[RITEM_BOX].index_count = box_geom->submesh_geoms[0].index_count;
+    all_ritems->ritems[RITEM_BOX].start_index_loc = box_geom->submesh_geoms[0].start_index_location;
+    all_ritems->ritems[RITEM_BOX].base_vertex_loc = box_geom->submesh_geoms[0].base_vertex_location;
+    all_ritems->ritems[RITEM_BOX].n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems->ritems[RITEM_BOX].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
+    all_ritems->ritems[RITEM_BOX].initialized = true;
+    all_ritems->size++;
+    opaque_ritems->ritems[1] = all_ritems->ritems[RITEM_BOX];
+    opaque_ritems->size++;
 }
 // -- indexed drawing
 static void
@@ -507,32 +521,32 @@ draw_render_items (
     ID3D12Resource * mat_cbuffer,
     UINT64 descriptor_increment_size,
     ID3D12DescriptorHeap * srv_heap,
-    RenderItem render_items [], // TODO(omid): pass pointer to renderitems
+    RenderItemArray * ritem_array, // TODO(omid): pass pointer to renderitems
     UINT current_frame_index
 ) {
     UINT objcb_byte_size = (UINT64)sizeof(ObjectConstants);
     UINT matcb_byte_size = (UINT64)sizeof(MaterialConstants);
-    for (size_t i = 0; i < _COUNT_RENDERITEM; ++i) {
-        if (render_items[i].initialized) {
-            D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(render_items[i].geometry);
-            D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(render_items[i].geometry);
+    for (size_t i = 0; i < ritem_array->size; ++i) {
+        if (ritem_array->ritems[i].initialized) {
+            D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(ritem_array->ritems[i].geometry);
+            D3D12_INDEX_BUFFER_VIEW ibv = Mesh_GetIndexBufferView(ritem_array->ritems[i].geometry);
             cmd_list->IASetVertexBuffers(0, 1, &vbv);
             cmd_list->IASetIndexBuffer(&ibv);
-            cmd_list->IASetPrimitiveTopology(render_items[i].primitive_type);
+            cmd_list->IASetPrimitiveTopology(ritem_array->ritems[i].primitive_type);
 
             D3D12_GPU_DESCRIPTOR_HANDLE tex = srv_heap->GetGPUDescriptorHandleForHeapStart();
-            tex.ptr += descriptor_increment_size * render_items[i].mat->diffuse_srvheap_index;
+            tex.ptr += descriptor_increment_size * ritem_array->ritems[i].mat->diffuse_srvheap_index;
 
             D3D12_GPU_VIRTUAL_ADDRESS objcb_address = object_cbuffer->GetGPUVirtualAddress();
-            objcb_address += (UINT64)render_items[i].obj_cbuffer_index * objcb_byte_size;
+            objcb_address += (UINT64)ritem_array->ritems[i].obj_cbuffer_index * objcb_byte_size;
 
             D3D12_GPU_VIRTUAL_ADDRESS matcb_address = mat_cbuffer->GetGPUVirtualAddress();
-            matcb_address += (UINT64)render_items[i].mat->mat_cbuffer_index * matcb_byte_size;
+            matcb_address += (UINT64)ritem_array->ritems[i].mat->mat_cbuffer_index * matcb_byte_size;
 
             cmd_list->SetGraphicsRootDescriptorTable(0, tex);
             cmd_list->SetGraphicsRootConstantBufferView(1, objcb_address);
             cmd_list->SetGraphicsRootConstantBufferView(3, matcb_address);
-            cmd_list->DrawIndexedInstanced(render_items[i].index_count, 1, render_items[i].start_index_loc, render_items[i].base_vertex_loc, 0);
+            cmd_list->DrawIndexedInstanced(ritem_array->ritems[i].index_count, 1, ritem_array->ritems[i].start_index_loc, ritem_array->ritems[i].base_vertex_loc, 0);
         }
     }
 }
@@ -933,14 +947,14 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
     UINT cbuffer_size = sizeof(ObjectConstants);
     // Only update the cbuffer data if the constants have changed.  
     // This needs to be tracked per frame resource.
-    for (unsigned i = 0; i < _COUNT_RENDERITEM; i++) {
+    for (unsigned i = 0; i < render_ctx->all_ritems.size; i++) {
         if (
-            render_ctx->all_ritems[i].n_frames_dirty > 0 &&
-            render_ctx->all_ritems[i].initialized
+            render_ctx->all_ritems.ritems[i].n_frames_dirty > 0 &&
+            render_ctx->all_ritems.ritems[i].initialized
             ) {
-            UINT obj_index = render_ctx->all_ritems[i].obj_cbuffer_index;
-            XMMATRIX world = XMLoadFloat4x4(&render_ctx->all_ritems[i].world);
-            XMMATRIX tex_transform = XMLoadFloat4x4(&render_ctx->all_ritems[i].tex_transform);
+            UINT obj_index = render_ctx->all_ritems.ritems[i].obj_cbuffer_index;
+            XMMATRIX world = XMLoadFloat4x4(&render_ctx->all_ritems.ritems[i].world);
+            XMMATRIX tex_transform = XMLoadFloat4x4(&render_ctx->all_ritems.ritems[i].tex_transform);
 
             ObjectConstants obj_cbuffer = {};
             XMStoreFloat4x4(&obj_cbuffer.world, XMMatrixTranspose(world));
@@ -950,7 +964,7 @@ update_obj_cbuffers (D3DRenderContext * render_ctx) {
             memcpy(obj_ptr, &obj_cbuffer, cbuffer_size);
 
             // Next FrameResource need to be updated too.
-            render_ctx->all_ritems[i].n_frames_dirty--;
+            render_ctx->all_ritems.ritems[i].n_frames_dirty--;
         }
     }
 }
@@ -1105,7 +1119,7 @@ update_waves_vb (Waves * waves, D3DRenderContext * render_ctx, GameTimer * timer
     // NOTE(omid): We did the upload_buffer mapping to data pointer (when creating the upload_buffer)
 
     // Set the dynamic VB of the wave renderitem to the current frame VB.
-    render_ctx->all_ritems[RITEM_WATER].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
+    render_ctx->all_ritems.ritems[RITEM_WATER].geometry->vb_gpu = render_ctx->frame_resources[frame_index].waves_vb;
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
@@ -1222,7 +1236,7 @@ draw_main (D3DRenderContext * render_ctx) {
         render_ctx->frame_resources[frame_index].mat_cb,
         render_ctx->cbv_srv_uav_descriptor_size,
         render_ctx->srv_heap,
-        render_ctx->all_ritems, frame_index
+        &render_ctx->all_ritems, frame_index
     );
 
     // -- indicate that the backbuffer will now be used to present
@@ -1240,7 +1254,7 @@ draw_main (D3DRenderContext * render_ctx) {
     return ret;
 }
 static void
-init_renderctx (D3DRenderContext * render_ctx) {
+RenderContext_Init (D3DRenderContext * render_ctx) {
     SIMPLE_ASSERT(render_ctx, "render-ctx not valid");
 
     memset(render_ctx, 0, sizeof(D3DRenderContext));
@@ -1370,7 +1384,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     XMStoreFloat4x4(&global_scene_ctx.proj, p);
 
     D3DRenderContext * render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
-    init_renderctx(render_ctx);
+    RenderContext_Init(render_ctx);
 
     // Waves Initial Setup
     uint32_t const nrow = 128;
@@ -1652,8 +1666,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     create_shape_geometry(render_ctx);
     create_materials(render_ctx->materials);
     create_render_items(
-        render_ctx->all_ritems,
-        render_ctx->layer_ritems,
+        &render_ctx->all_ritems,
+        &render_ctx->opaque_ritems,
+        &render_ctx->transparent_ritems,
+        &render_ctx->alphatested_ritems,
         &render_ctx->geom[GEOM_BOX],
         &render_ctx->geom[GEOM_WATER],
         &render_ctx->geom[GEOM_GRID],
