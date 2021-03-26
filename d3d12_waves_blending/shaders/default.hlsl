@@ -30,7 +30,7 @@ cbuffer PerPassConstantBuffer : register(b1) {
     float4x4 global_view_proj;
     float4x4 global_inv_view_proj;
     float3 global_eye_pos_w;
-    float cb_per_obj_padding;
+    float cb_per_obj_padding1;
     float2 global_render_target_size;
     float2 global_inv_render_target_size;
     float global_near_z;
@@ -39,6 +39,13 @@ cbuffer PerPassConstantBuffer : register(b1) {
     float global_delta_time;
     float4 global_ambient_light;
     
+    // Allow application to change fog parameters once per frame.
+    // For example, we may only use fog for certain times of day.
+    float4 global_fog_color;
+    float global_fog_start;
+    float global_fog_range;
+    float2 cb_per_obj_padding2;
+
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
     // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
@@ -53,7 +60,7 @@ cbuffer MaterialConstantBuffer : register(b2) {
 };
 
 struct VertexShaderInput {
-    float3 pos_local  : POSITION;
+    float3 pos_local : POSITION;
     float3 normal_local : NORMAL;
     float2 texc : TEXCOORD;
 };
@@ -92,7 +99,9 @@ PixelShader_Main (VertexShaderOutput pin) : SV_Target {
     pin.normal_world = normalize(pin.normal_world);
 
     // vector from point being lit "to eye"
-    float3 to_eye = normalize(global_eye_pos_w - pin.pos_world);
+    float3 to_eye = global_eye_pos_w - pin.pos_world;
+    float dist_to_eye = length(to_eye);
+    to_eye /= dist_to_eye;  // normalize
 
     // indirect lighting
     float4 ambient = global_ambient_light * diffuse_albedo;
@@ -105,6 +114,11 @@ PixelShader_Main (VertexShaderOutput pin) : SV_Target {
     );
     float4 lit_color = ambient + direct_light;
 
+#ifdef FOG
+    float fog_amount_factor = saturate((dist_to_eye - global_fog_start) / global_fog_range);
+    lit_color = lerp(lit_color, global_fog_color, fog_amount_factor);
+#endif
+    
     // common convention to take alpha from diffuse material
     lit_color.a = diffuse_albedo.a;
 

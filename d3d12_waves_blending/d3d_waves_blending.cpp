@@ -1215,8 +1215,8 @@ draw_main (D3DRenderContext * render_ctx) {
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = render_ctx->dsv_heap->GetCPUDescriptorHandleForHeapStart();
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
     rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->backbuffer_index) * INT64(render_ctx->rtv_descriptor_size));    // -- apply initial offset
-    float clear_colors [] = {0.2f, 0.3f, 0.5f, 1.0f};
-    render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, clear_colors, 0, nullptr);
+    
+    render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, (float *)&render_ctx->main_pass_constants.fog_color, 0, nullptr);
     render_ctx->direct_cmd_list->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, true, &dsv_handle);
 
@@ -1289,6 +1289,11 @@ RenderContext_Init (D3DRenderContext * render_ctx) {
     render_ctx->scissor_rect.top = 0;
     render_ctx->scissor_rect.right = global_scene_ctx.width;
     render_ctx->scissor_rect.bottom = global_scene_ctx.height;
+
+    // -- initialize fog data
+    render_ctx->main_pass_constants.fog_color = {0.7f, 0.7f, 0.7f, 1.0f};
+    render_ctx->main_pass_constants.fog_start = 5.0f;
+    render_ctx->main_pass_constants.fog_range = 150.0f;
 
     // -- initialize light data
     render_ctx->main_pass_constants.lights[0].strength = {.5f,.5f,.5f};
@@ -1646,18 +1651,32 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     IDxcBlobEncoding * shader_blob = nullptr;
     IDxcOperationResult * dxc_res = nullptr;
     IDxcBlob * vertex_shader_code = nullptr;
-    IDxcBlob * pixel_shader_code = nullptr;
+    IDxcBlob * pixel_shader_code_opaque = nullptr;
+    IDxcBlob * pixel_shader_code_alphatest = nullptr;
     hr = dxc_lib->CreateBlobFromFile(shaders_path, &code_page, &shader_blob);
     if (shader_blob) {
         IDxcIncludeHandler * include_handler = nullptr;
+        int const n_define_fog = 1;
+        DxcDefine defines_fog[n_define_fog] = {};
+        defines_fog[0].Name = L"FOG";
+        defines_fog[0].Value = L"1";
+        int const n_define_alphatest = 2;
+        DxcDefine defines_alphatest[n_define_alphatest] = {};
+        defines_alphatest[0].Name = L"FOG";
+        defines_alphatest[0].Value = L"1";
+        defines_alphatest[1].Name = L"ALPHA_TEST";
+        defines_alphatest[1].Value = L"1";
+
         dxc_lib->CreateIncludeHandler(&include_handler);
         hr = dxc_compiler->Compile(shader_blob, shaders_path, L"VertexShader_Main", L"vs_6_0", nullptr, 0, nullptr, 0, include_handler, &dxc_res);
         dxc_res->GetStatus(&hr);
         dxc_res->GetResult(&vertex_shader_code);
-        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"PixelShader_Main", L"ps_6_0", nullptr, 0, nullptr, 0, include_handler, &dxc_res);
+        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"PixelShader_Main", L"ps_6_0", nullptr, 0, defines_fog, n_define_fog, include_handler, &dxc_res);
         dxc_res->GetStatus(&hr);
-        dxc_res->GetResult(&pixel_shader_code);
-
+        dxc_res->GetResult(&pixel_shader_code_opaque);
+        hr = dxc_compiler->Compile(shader_blob, shaders_path, L"PixelShader_Main", L"ps_6_0", nullptr, 0, defines_alphatest, n_define_alphatest, include_handler, &dxc_res);
+        dxc_res->GetStatus(&hr);
+        dxc_res->GetResult(&pixel_shader_code_alphatest);
         if (FAILED(hr)) {
             if (dxc_res) {
                 IDxcBlobEncoding * errorsBlob = nullptr;
@@ -1671,12 +1690,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         }
     }
     SIMPLE_ASSERT(vertex_shader_code, "invalid shader");
-    SIMPLE_ASSERT(pixel_shader_code, "invalid shader");
+    SIMPLE_ASSERT(pixel_shader_code_opaque, "invalid shader");
+    SIMPLE_ASSERT(pixel_shader_code_alphatest, "invalid shader");
 
 #pragma endregion Compile_Shaders
 
 #pragma region PSO_Creation
-    create_pso(render_ctx, vertex_shader_code, pixel_shader_code, pixel_shader_code);
+    create_pso(render_ctx, vertex_shader_code, pixel_shader_code_opaque, pixel_shader_code_alphatest);
 #pragma endregion PSO_Creation
 
 #pragma region Shapes_And_Renderitem_Creation
@@ -1794,7 +1814,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->psos[i]->Release();
     }
 
-    pixel_shader_code->Release();
+    pixel_shader_code_alphatest->Release();
+    pixel_shader_code_opaque->Release();
     vertex_shader_code->Release();
 
     render_ctx->root_signature->Release();

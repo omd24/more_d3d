@@ -53,12 +53,18 @@ struct PassConstants {
 
     XMFLOAT4 ambient_light;
 
+    XMFLOAT4 fog_color;
+    float fog_start;
+    float fog_range;
+    XMFLOAT2 cbuffer_per_obj_pad2;
+
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
     // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
     // are spot lights for a maximum of MAX_LIGHTS per object.
     Light lights[MAX_LIGHTS];
-    float padding[16];  // Padding so the constant buffer is 256-byte aligned
+
+    float padding[8];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(1280 == sizeof(PassConstants), "Constant buffer size must be 256b aligned");
 
