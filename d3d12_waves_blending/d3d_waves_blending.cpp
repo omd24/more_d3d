@@ -31,6 +31,10 @@
 
 #include "waves.h"
 
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_win32.h"
+#include "imgui/imgui_impl_dx12.h"
+
 // TODO(omid): Swapchain backbuffer count and queuing frames count can be the same (refer to earlier samples)
 #define NUM_BACKBUFFERS         2
 #define NUM_QUEUING_FRAMES      3
@@ -106,6 +110,7 @@ struct SceneContext {
 
 GameTimer global_timer;
 bool global_running;
+bool global_resizing;
 SceneContext global_scene_ctx;
 
 struct RenderItemArray {
@@ -116,7 +121,7 @@ struct D3DRenderContext {
     // Pipeline stuff
     D3D12_VIEWPORT                  viewport;
     D3D12_RECT                      scissor_rect;
-    IDXGISwapChain3 *               swapchain3;
+    //IDXGISwapChain3 *               swapchain3;
     IDXGISwapChain *                swapchain;
     ID3D12Device *                  device;
     ID3D12RootSignature *           root_signature;
@@ -151,6 +156,7 @@ struct D3DRenderContext {
     HANDLE                          fence_event;
     ID3D12Fence *                   fence;
     FrameResource                   frame_resources[NUM_QUEUING_FRAMES];
+    UINT64                          main_current_fence;
 
     // Each swapchain backbuffer needs a render target
     ID3D12Resource *                render_targets[NUM_BACKBUFFERS];
@@ -161,6 +167,9 @@ struct D3DRenderContext {
     Material                        materials[_COUNT_MATERIAL];
     Texture                         textures[_COUNT_TEX];
 };
+
+// NOTE(omid): pass render_ctx via lparam to wnd_callback 
+D3DRenderContext * render_ctx = nullptr;
 
 static void
 load_texture (
@@ -554,7 +563,7 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
     // Create Shader Resource View descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
-    srv_heap_desc.NumDescriptors = _COUNT_TEX;
+    srv_heap_desc.NumDescriptors = _COUNT_TEX + 1 /* imgui descriptor */;
     srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     render_ctx->device->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&render_ctx->srv_heap));
@@ -597,7 +606,6 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
     render_ctx->device->CreateShaderResourceView(box_tex, &srv_desc, descriptor_cpu_handle);
 
-
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
     rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
@@ -612,6 +620,7 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     dsv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     dsv_heap_desc.NodeMask = 0;
     render_ctx->device->CreateDescriptorHeap(&dsv_heap_desc, IID_PPV_ARGS(&render_ctx->dsv_heap));
+
 }
 static void
 get_static_samplers (D3D12_STATIC_SAMPLER_DESC out_samplers []) {
@@ -1132,7 +1141,8 @@ move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT 
     CHECK_AND_FAIL(ret);
 
     // -- 2. update frame index
-    *out_backbuffer_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
+    //*out_backbuffer_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
+    *out_backbuffer_index = (*out_backbuffer_index + 1) % NUM_BACKBUFFERS;
     *out_frame_index = (render_ctx->frame_index + 1) % NUM_QUEUING_FRAMES;
 
     // -- 3. if the next frame is not ready to be rendered yet, wait until it is ready
@@ -1215,7 +1225,7 @@ draw_main (D3DRenderContext * render_ctx) {
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = render_ctx->dsv_heap->GetCPUDescriptorHandleForHeapStart();
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
     rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->backbuffer_index) * INT64(render_ctx->rtv_descriptor_size));    // -- apply initial offset
-    
+
     render_ctx->direct_cmd_list->ClearRenderTargetView(rtv_handle, (float *)&render_ctx->main_pass_constants.fog_color, 0, nullptr);
     render_ctx->direct_cmd_list->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     render_ctx->direct_cmd_list->OMSetRenderTargets(1, &rtv_handle, true, &dsv_handle);
@@ -1259,6 +1269,9 @@ draw_main (D3DRenderContext * render_ctx) {
         &render_ctx->transparent_ritems, frame_index
     );
 
+    // Imgui draw call
+    //ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), render_ctx->direct_cmd_list);
+
     // -- indicate that the backbuffer will now be used to present
     D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->render_targets[backbuffer_index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
     render_ctx->direct_cmd_list->ResourceBarrier(1, &barrier2);
@@ -1268,6 +1281,7 @@ draw_main (D3DRenderContext * render_ctx) {
 
     ID3D12CommandList * cmd_lists [] = {render_ctx->direct_cmd_list};
     render_ctx->cmd_queue->ExecuteCommandLists(ARRAY_COUNT(cmd_lists), cmd_lists);
+
 
     render_ctx->swapchain->Present(1 /*sync interval*/, 0 /*present flag*/);
 
@@ -1318,9 +1332,148 @@ RenderContext_Init (D3DRenderContext * render_ctx) {
     render_ctx->main_pass_constants.lights[2].spot_power = 64.0f;
 
 }
+static void
+flush_command_queue (D3DRenderContext * render_ctx) {
+    // Advance the fence value to mark commands up to this fence point.
+    render_ctx->main_current_fence++;
+
+    // Add an instruction to the command queue to set a new fence point.  Because we 
+    // are on the GPU timeline, the new fence point won't be set until the GPU finishes
+    // processing all the commands prior to this Signal().
+    render_ctx->cmd_queue->Signal(render_ctx->fence, render_ctx->main_current_fence);
+
+    // Wait until the GPU has completed commands up to this fence point.
+    if (render_ctx->fence->GetCompletedValue() < render_ctx->main_current_fence) {
+        HANDLE event_handle = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+        // Fire event when GPU hits current fence.  
+        render_ctx->fence->SetEventOnCompletion(render_ctx->main_current_fence, event_handle);
+
+        // Wait until the GPU hits current fence event is fired.
+        if (event_handle != 0) {
+            WaitForSingleObject(event_handle, INFINITE);
+            CloseHandle(event_handle);
+        }
+    }
+}
+static void
+d3d_resize (D3DRenderContext * render_ctx) {
+    int w = global_scene_ctx.width;
+    int h = global_scene_ctx.height;
+
+    if (render_ctx) {
+        // Flush before changing any resources.
+        flush_command_queue(render_ctx);
+        //wait_for_gpu(render_ctx);
+
+        render_ctx->direct_cmd_list->Reset(render_ctx->direct_cmd_list_alloc, nullptr);
+
+        // Release the previous resources we will be recreating.
+        for (int i = 0; i < NUM_BACKBUFFERS; ++i)
+            render_ctx->render_targets[i]->Release();
+        render_ctx->depth_stencil_buffer->Release();
+
+        // Resize the swap chain.
+        render_ctx->swapchain->ResizeBuffers(
+            NUM_BACKBUFFERS,
+            w, h,
+            DXGI_FORMAT_R8G8B8A8_UNORM,
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+
+        render_ctx->backbuffer_index = 0;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv_heap_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        for (UINT i = 0; i < NUM_BACKBUFFERS; i++) {
+            render_ctx->swapchain->GetBuffer(i, IID_PPV_ARGS(&render_ctx->render_targets[i]));
+            render_ctx->device->CreateRenderTargetView(render_ctx->render_targets[i], nullptr, rtv_heap_handle);
+            rtv_heap_handle.ptr += render_ctx->rtv_descriptor_size;
+        }
+
+        // Create the depth/stencil buffer and view.
+        D3D12_RESOURCE_DESC depth_stencil_desc;
+        depth_stencil_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        depth_stencil_desc.Alignment = 0;
+        depth_stencil_desc.Width = w;
+        depth_stencil_desc.Height = h;
+        depth_stencil_desc.DepthOrArraySize = 1;
+        depth_stencil_desc.MipLevels = 1;
+
+        // Correction 11/12/2016: SSAO chapter requires an SRV to the depth buffer to read from 
+        // the depth buffer.  Therefore, because we need to create two views to the same resource:
+        //   1. SRV format: DXGI_FORMAT_R24_UNORM_X8_TYPELESS
+        //   2. DSV Format: DXGI_FORMAT_D24_UNORM_S8_UINT
+        // we need to create the depth buffer resource with a typeless format.  
+        depth_stencil_desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+        depth_stencil_desc.SampleDesc.Count = 1;
+        depth_stencil_desc.SampleDesc.Quality = 0;
+        depth_stencil_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        depth_stencil_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+        D3D12_CLEAR_VALUE opt_clear;
+        opt_clear.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        opt_clear.DepthStencil.Depth = 1.0f;
+        opt_clear.DepthStencil.Stencil = 0;
+
+        D3D12_HEAP_PROPERTIES def_heap = {};
+        def_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        def_heap.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        def_heap.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        def_heap.CreationNodeMask = 1;
+        def_heap.VisibleNodeMask = 1;
+        render_ctx->device->CreateCommittedResource(
+            &def_heap,
+            D3D12_HEAP_FLAG_NONE,
+            &depth_stencil_desc,
+            D3D12_RESOURCE_STATE_COMMON,
+            &opt_clear,
+            IID_PPV_ARGS(&render_ctx->depth_stencil_buffer));
+
+        // Create descriptor to mip level 0 of entire resource using the format of the resource.
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+        dsv_desc.Flags = D3D12_DSV_FLAG_NONE;
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        dsv_desc.Texture2D.MipSlice = 0;
+        render_ctx->device->CreateDepthStencilView(render_ctx->depth_stencil_buffer, &dsv_desc, render_ctx->dsv_heap->GetCPUDescriptorHandleForHeapStart());
+
+        // Transition the resource from its initial state to be used as a depth buffer.
+        D3D12_RESOURCE_BARRIER ds_barrier = create_barrier(render_ctx->depth_stencil_buffer, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        render_ctx->direct_cmd_list->ResourceBarrier(1, &ds_barrier);
+
+        // Execute the resize commands.
+        render_ctx->direct_cmd_list->Close();
+        ID3D12CommandList* cmds_list [] = {render_ctx->direct_cmd_list};
+        render_ctx->cmd_queue->ExecuteCommandLists(_countof(cmds_list), cmds_list);
+
+        // Wait until resize is complete.
+        flush_command_queue(render_ctx);
+        //wait_for_gpu(render_ctx);
+
+        // Update the viewport transform to cover the client area.
+        render_ctx->viewport.TopLeftX = 0;
+        render_ctx->viewport.TopLeftY = 0;
+        render_ctx->viewport.Width    = static_cast<float>(w);
+        render_ctx->viewport.Height   = static_cast<float>(h);
+        render_ctx->viewport.MinDepth = 0.0f;
+        render_ctx->viewport.MaxDepth = 1.0f;
+
+        render_ctx->scissor_rect = {0, 0, w, h};
+
+        // The window resized, so update the aspect ratio and recompute the projection matrix.
+        global_scene_ctx.aspect_ratio = static_cast<float>(w) / h;
+        XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(0.25f * XM_PI, global_scene_ctx.aspect_ratio, 1.0f, 1000.0f);
+        XMStoreFloat4x4(&global_scene_ctx.proj, p);
+    }
+}
+
+// Forward declare message handler from imgui_impl_win32.cpp
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    LRESULT ret = {};
+    if (ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam))
+        return true;
+
+    LRESULT ret = 0;
     switch (uMsg) {
         /* WM_PAINT is not handled for now ...
         case WM_PAINT: {
@@ -1342,17 +1495,44 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     case WM_MOUSEMOVE: {
         handle_mouse_move(&global_scene_ctx, wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
     } break;
-    //case WM_CLOSE: {
-    //    global_running = false;
-    //    PostQuitMessage(0);
-    //    //DestroyWindow(hwnd);
-    //    ret = 0;
-    //} break;
+    case WM_SIZE: {
+        global_scene_ctx.width = LOWORD(lParam);
+        global_scene_ctx.height = HIWORD(lParam);
+        if (render_ctx) {
+            if (wParam == SIZE_MAXIMIZED) {
+                d3d_resize(render_ctx);
+            } else if (wParam == SIZE_RESTORED) {
+                if (global_resizing) {
+                    // don't do nothing until resizing finished
+                } else {
+                    d3d_resize(render_ctx);
+                }
+            }
+        }
+    } break;
+    // WM_EXITSIZEMOVE is sent when the user grabs the resize bars.
+    case WM_ENTERSIZEMOVE: {
+        global_resizing  = true;
+        Timer_Stop(&global_timer);
+    } break;
+    // WM_EXITSIZEMOVE is sent when the user releases the resize bars.
+    // Here we reset everything based on the new window dimensions.
+    case WM_EXITSIZEMOVE: {
+        global_resizing  = false;
+        Timer_Start(&global_timer);
+        d3d_resize(render_ctx);
+    } break;
     case WM_DESTROY: {
         global_running = false;
         //PostQuitMessage(0);
-        ret = 0;
     } break;
+    // Catch this message so to prevent the window from becoming too small.
+    case WM_GETMINMAXINFO:
+    {
+        ((MINMAXINFO*)lParam)->ptMinTrackSize.x = 200;
+        ((MINMAXINFO*)lParam)->ptMinTrackSize.y = 200;
+    }
+    break;
     default: {
         ret = DefWindowProcA(hwnd, uMsg, wParam, lParam);
     } break;
@@ -1361,6 +1541,8 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 }
 INT WINAPI
 WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
+    global_scene_ctx = {.width = 800, .height = 600};
+
     // ========================================================================================================
 #pragma region Windows_Setup
     WNDCLASSA wc = {};
@@ -1371,15 +1553,22 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     SIMPLE_ASSERT(RegisterClassA(&wc), "could not register window class");
 
+    // Compute window rectangle dimensions based on requested client area dimensions.
+    RECT R = {0, 0, (long int)global_scene_ctx.width, (long int)global_scene_ctx.height};
+    AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW, false);
+    int width  = R.right - R.left;
+    int height = R.bottom - R.top;
+
     HWND hwnd = CreateWindowExA(
         0,                                      // Optional window styles.
         wc.lpszClassName,                       // Window class
         "3D Waves Blending app",               // Window title
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,       // Window style
-        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, // Size and position settings
+        CW_USEDEFAULT, CW_USEDEFAULT, width, height, // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
     );
     SIMPLE_ASSERT(hwnd, "could not create window");
+
 #pragma endregion Windows_Setup
 
     // ========================================================================================================
@@ -1396,7 +1585,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     // ========================================================================================================
 #pragma region Initialization
-    global_scene_ctx = {.width = 1280, .height = 720};
     global_scene_ctx.theta = 1.5f * XM_PI;
     global_scene_ctx.phi = XM_PIDIV2 - 0.1f;
     global_scene_ctx.radius = 50.0f;
@@ -1408,7 +1596,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(0.25f * XM_PI, global_scene_ctx.aspect_ratio, 1.0f, 1000.0f);
     XMStoreFloat4x4(&global_scene_ctx.proj, p);
 
-    D3DRenderContext * render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
+    render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
     RenderContext_Init(render_ctx);
 
     // Waves Initial Setup
@@ -1481,6 +1669,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     backbuffer_desc.Width = global_scene_ctx.width;
     backbuffer_desc.Height = global_scene_ctx.height;
     backbuffer_desc.Format = DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM;
+    backbuffer_desc.RefreshRate.Numerator = 60;
+    backbuffer_desc.RefreshRate.Denominator = 1;
+    backbuffer_desc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+    backbuffer_desc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
 
     DXGI_SAMPLE_DESC sampler_desc = {};
     sampler_desc.Count = 1;
@@ -1494,15 +1686,15 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     swapchain_desc.BufferCount = NUM_BACKBUFFERS;
     swapchain_desc.OutputWindow = hwnd;
     swapchain_desc.Windowed = TRUE;
-    swapchain_desc.SwapEffect = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    swapchain_desc.Flags = DXGI_SWAP_CHAIN_FLAG::DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+    swapchain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    swapchain_desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
     if (render_ctx->cmd_queue)
         dxgi_factory->CreateSwapChain(render_ctx->cmd_queue, &swapchain_desc, &render_ctx->swapchain);
 
     // -- to get current backbuffer index
-    CHECK_AND_FAIL(render_ctx->swapchain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&render_ctx->swapchain3));
-    render_ctx->backbuffer_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
+    //CHECK_AND_FAIL(render_ctx->swapchain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&render_ctx->swapchain3));
+    //render_ctx->backbuffer_index = render_ctx->swapchain3->GetCurrentBackBufferIndex();
 
 // ========================================================================================================
 #pragma region Load Textures
@@ -1590,10 +1782,9 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // -- create frame resources: rtv, cmd-allocator and cbuffers for each frame
     render_ctx->rtv_descriptor_size = render_ctx->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle_start = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
-
     for (UINT i = 0; i < NUM_BACKBUFFERS; ++i) {
-        CHECK_AND_FAIL(render_ctx->swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx->render_targets[i])));
-
+        /*CHECK_AND_FAIL(render_ctx->swapchain3->GetBuffer(i, IID_PPV_ARGS(&render_ctx->render_targets[i])));*/
+        render_ctx->swapchain->GetBuffer(i, IID_PPV_ARGS(&render_ctx->render_targets[i]));
         D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = {};
         cpu_handle.ptr = rtv_handle_start.ptr + ((UINT64)i * render_ctx->rtv_descriptor_size);
         // -- create a rtv for each frame
@@ -1748,11 +1939,37 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     // complete before continuing.
     CHECK_AND_FAIL(wait_for_gpu(render_ctx));
 
-#pragma endregion Initialization
+#pragma endregion
 
-    // ========================================================================================================
+#pragma region Setup Imgui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.Fonts->AddFontDefault();
+    ImGui::StyleColorsDark();
+
+    // calculate imgui cpu & gpu handles on location on srv_heap
+    D3D12_CPU_DESCRIPTOR_HANDLE imgui_cpu_handle = render_ctx->srv_heap->GetCPUDescriptorHandleForHeapStart();
+    imgui_cpu_handle.ptr += (render_ctx->cbv_srv_uav_descriptor_size * _COUNT_TEX);
+
+    D3D12_GPU_DESCRIPTOR_HANDLE imgui_gpu_handle = render_ctx->srv_heap->GetGPUDescriptorHandleForHeapStart();
+    imgui_gpu_handle.ptr += (render_ctx->cbv_srv_uav_descriptor_size * _COUNT_MATERIAL);
+
+    // Setup Platform/Renderer backends
+    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplDX12_Init(
+        render_ctx->device, NUM_QUEUING_FRAMES,
+        DXGI_FORMAT_R8G8B8A8_UNORM, render_ctx->srv_heap,
+        imgui_cpu_handle,
+        imgui_gpu_handle
+    );
+#pragma endregion
+
+    bool show_another_window = true;
+        // ========================================================================================================
 #pragma region Main_Loop
     global_running = true;
+    global_resizing = false;
     Timer_Init(&global_timer);
     Timer_Reset(&global_timer);
     while (global_running) {
@@ -1761,6 +1978,25 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
             TranslateMessage(&msg);
             DispatchMessageA(&msg);
         }
+
+        //// Imgui stuff
+        //ImGui_ImplDX12_NewFrame();
+        //ImGui_ImplWin32_NewFrame();
+        //ImGui::NewFrame();
+        //static float f = 0.0f;
+        //static int counter = 0;
+
+        //ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+        //ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+
+        //if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
+        //    counter++;
+        //ImGui::SameLine();
+        //ImGui::Text("counter = %d", counter);
+
+        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+        //ImGui::End();
+        //ImGui::Render();
 
         Timer_Tick(&global_timer);
 
@@ -1776,13 +2012,21 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
         CHECK_AND_FAIL(draw_main(render_ctx));
 
+
+
+
         CHECK_AND_FAIL(move_to_next_frame(render_ctx, &render_ctx->frame_index, &render_ctx->backbuffer_index));
     }
-#pragma endregion Main_Loop
+#pragma endregion
 
     // ========================================================================================================
 #pragma region Cleanup_And_Debug
     CHECK_AND_FAIL(wait_for_gpu(render_ctx));
+
+    // Cleanup Imgui
+    ImGui_ImplDX12_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
 
     CloseHandle(render_ctx->fence_event);
 
@@ -1836,7 +2080,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         render_ctx->textures[i].resource->Release();
     }
 
-    render_ctx->swapchain3->Release();
+    //render_ctx->swapchain3->Release();
     render_ctx->swapchain->Release();
     render_ctx->direct_cmd_list->Release();
     render_ctx->direct_cmd_list_alloc->Release();
