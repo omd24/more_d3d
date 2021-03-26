@@ -929,7 +929,7 @@ handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         scene_ctx->radius += dx - dy;
 
         // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 100.0f);
     }
     scene_ctx->mouse.x = x;
     scene_ctx->mouse.y = y;
@@ -1541,7 +1541,7 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 }
 INT WINAPI
 WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
-    global_scene_ctx = {.width = 800, .height = 600};
+    global_scene_ctx = {.width = 640, .height = 480};
 
     // ========================================================================================================
 #pragma region Windows_Setup
@@ -1600,8 +1600,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     RenderContext_Init(render_ctx);
 
     // Waves Initial Setup
-    uint32_t const nrow = 128;
-    uint32_t const ncols = 128;
+    uint32_t const nrow = 160;
+    uint32_t const ncols = 160;
     uint32_t const N_VTX = nrow * ncols;
     size_t wave_size = Waves_CalculateRequiredSize(nrow, ncols);
     BYTE * wave_memory = (BYTE *)::malloc(wave_size);
