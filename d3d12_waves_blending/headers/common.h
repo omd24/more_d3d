@@ -13,6 +13,7 @@
 #include <d3dcommon.h>
 #include <directxmath.h>
 #include <windowsx.h>
+#include <tchar.h>
 
 #include <DirectXColors.h>
 #include <DirectXCollision.h>

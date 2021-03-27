@@ -167,10 +167,6 @@ struct D3DRenderContext {
     Material                        materials[_COUNT_MATERIAL];
     Texture                         textures[_COUNT_TEX];
 };
-
-// NOTE(omid): pass render_ctx via lparam to wnd_callback 
-D3DRenderContext * render_ctx = nullptr;
-
 static void
 load_texture (
     ID3D12Device * device,
@@ -357,7 +353,7 @@ create_land_geometry (D3DRenderContext * render_ctx) {
     uint16_t * indices = (uint16_t *)::malloc(sizeof(uint16_t) * nidx);
     GeomVertex * grid = (GeomVertex *)::malloc(sizeof(GeomVertex) * nvtx);
 
-    create_grid(160.0f, 160.0f, 50, 50, grid, indices);
+    create_grid(360.0f, 360.0f, 50, 50, grid, indices);
 
     // Extract the vertex elements we are interested and apply the height function to
     // each vertex.  In addition, color the vertices based on their height so we have
@@ -407,10 +403,10 @@ create_land_geometry (D3DRenderContext * render_ctx) {
 static void
 create_water_geometry (UINT nrow, UINT ncol, UINT ntri, D3DRenderContext * render_ctx) {
     uint32_t _WAVE_VTX_CNT = ncol * nrow;
+    SIMPLE_ASSERT(_WAVE_VTX_CNT < 0x000fffff, "Invalid vertex count");
     Vertex * vertices = (Vertex *)::malloc(sizeof(Vertex) * _WAVE_VTX_CNT);
     uint32_t _idx_cnt = 3 * ntri;
     uint32_t * indices = (uint32_t *)::malloc(_idx_cnt * sizeof(uint32_t)); // 3 indices per face
-    SIMPLE_ASSERT(_WAVE_VTX_CNT < 0x0000ffff, "Invalid vertex count");
 
     // Iterate over each quad.
     int m = nrow;
@@ -929,7 +925,7 @@ handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
         scene_ctx->radius += dx - dy;
 
         // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 100.0f);
+        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
     }
     scene_ctx->mouse.x = x;
     scene_ctx->mouse.y = y;
@@ -1288,9 +1284,26 @@ draw_main (D3DRenderContext * render_ctx) {
     return ret;
 }
 static void
+SceneContext_Init (SceneContext * scene_ctx, int w, int h) {
+    SIMPLE_ASSERT(scene_ctx, "scene_ctx not valid");
+    memset(scene_ctx, 0, sizeof(SceneContext));
+
+    scene_ctx->width = w;
+    scene_ctx->height = h;
+    scene_ctx->theta = 1.5f * XM_PI;
+    scene_ctx->phi = XM_PIDIV2 - 0.1f;
+    scene_ctx->radius = 50.0f;
+    scene_ctx->sun_theta = 1.25f * XM_PI;
+    scene_ctx->sun_phi = XM_PIDIV4;
+    scene_ctx->aspect_ratio = (float)scene_ctx->width / (float)scene_ctx->height;
+    scene_ctx->eye_pos = {0.0f, 0.0f, 0.0f};
+    scene_ctx->view = Identity4x4();
+    XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(0.25f * XM_PI, scene_ctx->aspect_ratio, 1.0f, 1000.0f);
+    XMStoreFloat4x4(&scene_ctx->proj, p);
+}
+static void
 RenderContext_Init (D3DRenderContext * render_ctx) {
     SIMPLE_ASSERT(render_ctx, "render-ctx not valid");
-
     memset(render_ctx, 0, sizeof(D3DRenderContext));
 
     render_ctx->viewport.TopLeftX = 0;
@@ -1361,8 +1374,13 @@ d3d_resize (D3DRenderContext * render_ctx) {
     int w = global_scene_ctx.width;
     int h = global_scene_ctx.height;
 
-    if (render_ctx) {
-        // Flush before changing any resources.
+    if (
+        render_ctx &&
+        render_ctx->device &&
+        render_ctx->direct_cmd_list_alloc &&
+        render_ctx->swapchain
+        ) {
+            // Flush before changing any resources.
         flush_command_queue(render_ctx);
         //wait_for_gpu(render_ctx);
 
@@ -1378,7 +1396,8 @@ d3d_resize (D3DRenderContext * render_ctx) {
             NUM_BACKBUFFERS,
             w, h,
             DXGI_FORMAT_R8G8B8A8_UNORM,
-            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH
+        );
 
         render_ctx->backbuffer_index = 0;
 
@@ -1426,7 +1445,8 @@ d3d_resize (D3DRenderContext * render_ctx) {
             &depth_stencil_desc,
             D3D12_RESOURCE_STATE_COMMON,
             &opt_clear,
-            IID_PPV_ARGS(&render_ctx->depth_stencil_buffer));
+            IID_PPV_ARGS(&render_ctx->depth_stencil_buffer)
+        );
 
         // Create descriptor to mip level 0 of entire resource using the format of the resource.
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
@@ -1465,13 +1485,24 @@ d3d_resize (D3DRenderContext * render_ctx) {
         XMStoreFloat4x4(&global_scene_ctx.proj, p);
     }
 }
-
 // Forward declare message handler from imgui_impl_win32.cpp
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static LRESULT CALLBACK
 main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    // Handle imgui window
     if (ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam))
         return true;
+
+    // Handle passed user data (render_ctx)
+    D3DRenderContext * _render_ctx = nullptr;
+    if (uMsg == WM_CREATE) {
+        CREATESTRUCT * ptr_create = reinterpret_cast<CREATESTRUCT *>(lParam);
+        _render_ctx = reinterpret_cast<D3DRenderContext *>(ptr_create->lpCreateParams);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)_render_ctx);
+    } else {
+        LONG_PTR ptr = GetWindowLongPtr(hwnd, GWLP_USERDATA);
+        _render_ctx = reinterpret_cast<D3DRenderContext *>(ptr);
+    }
 
     LRESULT ret = 0;
     switch (uMsg) {
@@ -1498,14 +1529,14 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     case WM_SIZE: {
         global_scene_ctx.width = LOWORD(lParam);
         global_scene_ctx.height = HIWORD(lParam);
-        if (render_ctx) {
+        if (_render_ctx) {
             if (wParam == SIZE_MAXIMIZED) {
-                d3d_resize(render_ctx);
+                d3d_resize(_render_ctx);
             } else if (wParam == SIZE_RESTORED) {
                 if (global_resizing) {
                     // don't do nothing until resizing finished
                 } else {
-                    d3d_resize(render_ctx);
+                    d3d_resize(_render_ctx);
                 }
             }
         }
@@ -1520,7 +1551,7 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     case WM_EXITSIZEMOVE: {
         global_resizing  = false;
         Timer_Start(&global_timer);
-        d3d_resize(render_ctx);
+        d3d_resize(_render_ctx);
     } break;
     case WM_DESTROY: {
         global_running = false;
@@ -1541,17 +1572,20 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 }
 INT WINAPI
 WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
-    global_scene_ctx = {.width = 640, .height = 480};
+
+    SceneContext_Init(&global_scene_ctx, 1280, 720);
+    D3DRenderContext * render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
+    RenderContext_Init(render_ctx);
 
     // ========================================================================================================
 #pragma region Windows_Setup
-    WNDCLASSA wc = {};
+    WNDCLASS wc = {};
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
     wc.lpfnWndProc = main_win_cb;
     wc.hInstance = hInstance;
-    wc.lpszClassName = "d3d12_win32";
+    wc.lpszClassName = _T("d3d12_win32");
 
-    SIMPLE_ASSERT(RegisterClassA(&wc), "could not register window class");
+    SIMPLE_ASSERT(RegisterClass(&wc), "could not register window class");
 
     // Compute window rectangle dimensions based on requested client area dimensions.
     RECT R = {0, 0, (long int)global_scene_ctx.width, (long int)global_scene_ctx.height};
@@ -1559,13 +1593,14 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     int width  = R.right - R.left;
     int height = R.bottom - R.top;
 
-    HWND hwnd = CreateWindowExA(
-        0,                                      // Optional window styles.
-        wc.lpszClassName,                       // Window class
-        "3D Waves Blending app",               // Window title
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,       // Window style
-        CW_USEDEFAULT, CW_USEDEFAULT, width, height, // Size and position settings
-        0 /* Parent window */, 0 /* Menu */, hInstance /* Instance handle */, 0 /* Additional application data */
+    HWND hwnd = CreateWindowEx(
+        0,                                              // Optional window styles.
+        wc.lpszClassName,                               // Window class
+        _T("3D Waves Blending app"),                    // Window title
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,               // Window style
+        CW_USEDEFAULT, CW_USEDEFAULT, width, height,    // Size and position settings
+        0 /* Parent window */, 0 /* Menu */, hInstance  /* Instance handle */,
+        render_ctx                                      /* Additional application data */
     );
     SIMPLE_ASSERT(hwnd, "could not create window");
 
@@ -1585,23 +1620,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
     // ========================================================================================================
 #pragma region Initialization
-    global_scene_ctx.theta = 1.5f * XM_PI;
-    global_scene_ctx.phi = XM_PIDIV2 - 0.1f;
-    global_scene_ctx.radius = 50.0f;
-    global_scene_ctx.sun_theta = 1.25f * XM_PI;
-    global_scene_ctx.sun_phi = XM_PIDIV4;
-    global_scene_ctx.aspect_ratio = (float)global_scene_ctx.width / (float)global_scene_ctx.height;
-    global_scene_ctx.eye_pos = {0.0f, 0.0f, 0.0f};
-    global_scene_ctx.view = Identity4x4();
-    XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(0.25f * XM_PI, global_scene_ctx.aspect_ratio, 1.0f, 1000.0f);
-    XMStoreFloat4x4(&global_scene_ctx.proj, p);
-
-    render_ctx = (D3DRenderContext *)::malloc(sizeof(D3DRenderContext));
-    RenderContext_Init(render_ctx);
 
     // Waves Initial Setup
-    uint32_t const nrow = 160;
-    uint32_t const ncols = 160;
+    uint32_t const nrow = 360;
+    uint32_t const ncols = 360;
     uint32_t const N_VTX = nrow * ncols;
     size_t wave_size = Waves_CalculateRequiredSize(nrow, ncols);
     BYTE * wave_memory = (BYTE *)::malloc(wave_size);
@@ -2047,12 +2069,12 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     }
     for (unsigned i = 0; i < _COUNT_GEOM; i++) {
         render_ctx->geom[i].ib_uploader->Release();
-        if (i != GEOM_WATER)    // water uses a dynamic vb
+        if (i != GEOM_WATER) {    // water uses a dynamic vb
             render_ctx->geom[i].vb_uploader->Release();
-
+            render_ctx->geom[i].vb_gpu->Release();
+        }
         render_ctx->geom[i].ib_gpu->Release();
-        render_ctx->geom[i].vb_gpu->Release();
-    }
+    }   // is this a bug in d3d12sdklayers.dll ?
 
     for (int i = 0; i < _COUNT_RENDER_LAYER; ++i) {
         render_ctx->psos[i]->Release();
