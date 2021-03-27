@@ -63,6 +63,7 @@ enum MAT_INDEX {
     MAT_WOOD_CRATE = 0,
     MAT_GRASS = 1,
     MAT_WATER = 2,
+    MAT_WIRED_CRATE = 3,
 
     _COUNT_MATERIAL
 };
@@ -70,6 +71,7 @@ enum TEX_INDEX {
     TEX_CRATE01 = 0,
     TEX_WATER = 1,
     TEX_GRASS = 2,
+    TEX_WIREFENCE = 3,
 
     _COUNT_TEX
 };
@@ -257,6 +259,14 @@ create_materials (Material out_materials []) {
     out_materials[MAT_WOOD_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     out_materials[MAT_WOOD_CRATE].roughness = 0.2f;
     out_materials[MAT_WOOD_CRATE].mat_transform = Identity4x4();
+
+    strcpy_s(out_materials[MAT_WIRED_CRATE].name, "wired_crate");
+    out_materials[MAT_WIRED_CRATE].mat_cbuffer_index = 3;
+    out_materials[MAT_WIRED_CRATE].diffuse_srvheap_index = 3;
+    out_materials[MAT_WIRED_CRATE].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_WIRED_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_WIRED_CRATE].roughness = 0.2f;
+    out_materials[MAT_WIRED_CRATE].mat_transform = Identity4x4();
 }
 static float
 calc_hill_height (float x, float z) {
@@ -601,6 +611,18 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
     descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
     render_ctx->device->CreateShaderResourceView(box_tex, &srv_desc, descriptor_cpu_handle);
+
+    // wire_fence texture
+    ID3D12Resource * wire_tex = render_ctx->textures[TEX_WIREFENCE].resource;
+    memset(&srv_desc, 0, sizeof(srv_desc)); // reset desc
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Format = wire_tex->GetDesc().Format;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Texture2D.MostDetailedMip = 0;
+    srv_desc.Texture2D.MipLevels = wire_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
+    descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
+    render_ctx->device->CreateShaderResourceView(wire_tex, &srv_desc, descriptor_cpu_handle);
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
@@ -1749,6 +1771,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     load_texture(
         render_ctx->device, render_ctx->direct_cmd_list,
         render_ctx->textures[TEX_GRASS].filename, &render_ctx->textures[TEX_GRASS]
+    );
+    // wire_fence
+    strcpy_s(render_ctx->textures[TEX_WIREFENCE].name, "wirefencetex");
+    wcscpy_s(render_ctx->textures[TEX_WIREFENCE].filename, L"../Textures/WireFence.dds");
+    load_texture(
+        render_ctx->device, render_ctx->direct_cmd_list,
+        render_ctx->textures[TEX_WIREFENCE].filename, &render_ctx->textures[TEX_WIREFENCE]
     );
 #pragma endregion
 
