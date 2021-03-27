@@ -1,7 +1,6 @@
 
 #include "headers/common.h"
 
-
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
 #include <dxgidebug.h>
@@ -111,6 +110,7 @@ struct SceneContext {
 GameTimer global_timer;
 bool global_running;
 bool global_resizing;
+bool global_mouse_active;
 SceneContext global_scene_ctx;
 
 struct RenderItemArray {
@@ -905,27 +905,29 @@ handle_keyboard_input (SceneContext * scene_ctx, GameTimer * gt) {
 }
 static void
 handle_mouse_move (SceneContext * scene_ctx, WPARAM wParam, int x, int y) {
-    if ((wParam & MK_LBUTTON) != 0) {
-        // make each pixel correspond to a quarter of a degree
-        float dx = DirectX::XMConvertToRadians(0.25f * (float)(x - scene_ctx->mouse.x));
-        float dy = DirectX::XMConvertToRadians(0.25f * (float)(y - scene_ctx->mouse.y));
+    if (global_mouse_active) {
+        if ((wParam & MK_LBUTTON) != 0) {
+            // make each pixel correspond to a quarter of a degree
+            float dx = DirectX::XMConvertToRadians(0.25f * (float)(x - scene_ctx->mouse.x));
+            float dy = DirectX::XMConvertToRadians(0.25f * (float)(y - scene_ctx->mouse.y));
 
-        // update angles (to orbit camera around)
-        scene_ctx->theta += dx;
-        scene_ctx->phi += dy;
+            // update angles (to orbit camera around)
+            scene_ctx->theta += dx;
+            scene_ctx->phi += dy;
 
-        // clamp phi
-        scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, XM_PI - 0.1f);
-    } else if ((wParam & MK_RBUTTON) != 0) {
-        // make each pixel correspond to a 0.2 unit in scene
-        float dx = 0.2f * (float)(x - scene_ctx->mouse.x);
-        float dy = 0.2f * (float)(y - scene_ctx->mouse.y);
+            // clamp phi
+            scene_ctx->phi = CLAMP_VALUE(scene_ctx->phi, 0.1f, XM_PI - 0.1f);
+        } else if ((wParam & MK_RBUTTON) != 0) {
+            // make each pixel correspond to a 0.2 unit in scene
+            float dx = 0.2f * (float)(x - scene_ctx->mouse.x);
+            float dy = 0.2f * (float)(y - scene_ctx->mouse.y);
 
-        // update camera radius
-        scene_ctx->radius += dx - dy;
+            // update camera radius
+            scene_ctx->radius += dx - dy;
 
-        // clamp radius
-        scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
+            // clamp radius
+            scene_ctx->radius = CLAMP_VALUE(scene_ctx->radius, 5.0f, 150.0f);
+        }
     }
     scene_ctx->mouse.x = x;
     scene_ctx->mouse.y = y;
@@ -1266,7 +1268,7 @@ draw_main (D3DRenderContext * render_ctx) {
     );
 
     // Imgui draw call
-    //ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), render_ctx->direct_cmd_list);
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), render_ctx->direct_cmd_list);
 
     // -- indicate that the backbuffer will now be used to present
     D3D12_RESOURCE_BARRIER barrier2 = create_barrier(render_ctx->render_targets[backbuffer_index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -1485,6 +1487,13 @@ d3d_resize (D3DRenderContext * render_ctx) {
         XMStoreFloat4x4(&global_scene_ctx.proj, p);
     }
 }
+static void
+check_active_item () {
+    if (ImGui::IsItemActive() || ImGui::IsItemHovered())
+        global_mouse_active = false;
+    else
+        global_mouse_active = true;
+}
 // Forward declare message handler from imgui_impl_win32.cpp
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static LRESULT CALLBACK
@@ -1565,7 +1574,7 @@ main_win_cb (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     }
     break;
     default: {
-        ret = DefWindowProcA(hwnd, uMsg, wParam, lParam);
+        ret = DefWindowProc(hwnd, uMsg, wParam, lParam);
     } break;
     }
     return ret;
@@ -1596,7 +1605,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     HWND hwnd = CreateWindowEx(
         0,                                              // Optional window styles.
         wc.lpszClassName,                               // Window class
-        _T("3D Waves Blending app"),                    // Window title
+        _T("Waves Blending app"),                       // Window title
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,               // Window style
         CW_USEDEFAULT, CW_USEDEFAULT, width, height,    // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance  /* Instance handle */,
@@ -1963,7 +1972,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 #pragma endregion
 
-#pragma region Setup Imgui
+#pragma region Imgui Setup
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -1985,13 +1994,26 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         imgui_cpu_handle,
         imgui_gpu_handle
     );
+
+    // Setup imgui variables
+    bool * ptr_open = nullptr;
+    ImGuiWindowFlags window_flags = 0;
+    window_flags |= ImGuiWindowFlags_NoScrollbar;
+    window_flags |= ImGuiWindowFlags_MenuBar;
+    window_flags |= ImGuiWindowFlags_NoMove;
+    window_flags |= ImGuiWindowFlags_NoCollapse;
+    window_flags |= ImGuiWindowFlags_NoNav;
+    window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus;
+    //window_flags |= ImGuiWindowFlags_NoResize;
+
 #pragma endregion
 
-    bool show_another_window = true;
         // ========================================================================================================
 #pragma region Main_Loop
     global_running = true;
     global_resizing = false;
+    global_mouse_active = true;
+    bool beginwnd, sliderf, coloredit;
     Timer_Init(&global_timer);
     Timer_Reset(&global_timer);
     while (global_running) {
@@ -2001,27 +2023,31 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
             DispatchMessageA(&msg);
         }
 
-        //// Imgui stuff
-        //ImGui_ImplDX12_NewFrame();
-        //ImGui_ImplWin32_NewFrame();
-        //ImGui::NewFrame();
-        //static float f = 0.0f;
-        //static int counter = 0;
+#pragma region Imgui window
+        ImGui_ImplDX12_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+        ImGui::Begin("Settings", ptr_open, window_flags);
+        beginwnd = ImGui::IsItemActive();
 
-        //ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-        //ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+        ImGui::SliderFloat(
+            "Fog Distance",
+            &render_ctx->main_pass_constants.fog_start,
+            5.0f,
+            150.0f
+        );
+        sliderf = ImGui::IsItemActive();
+        ImGui::ColorEdit3("Fog Color", (float*)&render_ctx->main_pass_constants.fog_color);
+        coloredit = ImGui::IsItemActive();
+        ImGui::Text("\n\n");
+        ImGui::Separator();
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
-        //if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-        //    counter++;
-        //ImGui::SameLine();
-        //ImGui::Text("counter = %d", counter);
-
-        //ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-        //ImGui::End();
-        //ImGui::Render();
+        ImGui::End();
+        ImGui::Render();
+#pragma endregion
 
         Timer_Tick(&global_timer);
-
         handle_keyboard_input(&global_scene_ctx, &global_timer);
         update_camera(&global_scene_ctx);
 
@@ -2029,14 +2055,10 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_obj_cbuffers(render_ctx);
         update_mat_cbuffers(render_ctx);
         update_pass_cbuffers(render_ctx, &global_timer);
-
         update_waves_vb(waves, render_ctx, &global_timer);
 
         CHECK_AND_FAIL(draw_main(render_ctx));
-
-
-
-
+        global_mouse_active = !(beginwnd || sliderf || coloredit);
         CHECK_AND_FAIL(move_to_next_frame(render_ctx, &render_ctx->frame_index, &render_ctx->backbuffer_index));
     }
 #pragma endregion
