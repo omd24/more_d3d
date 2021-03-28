@@ -95,13 +95,17 @@ PixelShader_Main (VertexShaderOutput pin) : SV_Target {
     float4 diffuse_albedo =
         global_diffuse_map.Sample(global_sam_anisotropic_wrap, pin.texc) * global_diffuse_albedo;
 
+#ifdef ALPHA_TEST
+    clip(diffuse_albedo.a - 0.1f);
+#endif
+    
     // interpolations of normal can unnormalize it so renormalize!
     pin.normal_world = normalize(pin.normal_world);
 
     // vector from point being lit "to eye"
     float3 to_eye = global_eye_pos_w - pin.pos_world;
     float dist_to_eye = length(to_eye);
-    to_eye /= dist_to_eye;  // normalize
+    to_eye /= dist_to_eye; // normalize
 
     // indirect lighting
     float4 ambient = global_ambient_light * diffuse_albedo;

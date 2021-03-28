@@ -243,6 +243,7 @@ create_materials (Material out_materials []) {
     out_materials[MAT_GRASS].fresnel_r0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
     out_materials[MAT_GRASS].roughness = 0.125f;
     out_materials[MAT_GRASS].mat_transform = Identity4x4();
+    out_materials[MAT_GRASS].n_frames_dirty = NUM_QUEUING_FRAMES;
 
     strcpy_s(out_materials[MAT_WATER].name, "water");
     out_materials[MAT_WATER].mat_cbuffer_index = 1;
@@ -251,6 +252,7 @@ create_materials (Material out_materials []) {
     out_materials[MAT_WATER].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
     out_materials[MAT_WATER].roughness = 0.0f;
     out_materials[MAT_WATER].mat_transform = Identity4x4();
+    out_materials[MAT_WATER].n_frames_dirty = NUM_QUEUING_FRAMES;
 
     strcpy_s(out_materials[MAT_WOOD_CRATE].name, "wood_crate");
     out_materials[MAT_WOOD_CRATE].mat_cbuffer_index = 2;
@@ -259,6 +261,7 @@ create_materials (Material out_materials []) {
     out_materials[MAT_WOOD_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     out_materials[MAT_WOOD_CRATE].roughness = 0.2f;
     out_materials[MAT_WOOD_CRATE].mat_transform = Identity4x4();
+    out_materials[MAT_WOOD_CRATE].n_frames_dirty = NUM_QUEUING_FRAMES;
 
     strcpy_s(out_materials[MAT_WIRED_CRATE].name, "wired_crate");
     out_materials[MAT_WIRED_CRATE].mat_cbuffer_index = 3;
@@ -267,6 +270,7 @@ create_materials (Material out_materials []) {
     out_materials[MAT_WIRED_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     out_materials[MAT_WIRED_CRATE].roughness = 0.2f;
     out_materials[MAT_WIRED_CRATE].mat_transform = Identity4x4();
+    out_materials[MAT_WIRED_CRATE].n_frames_dirty = NUM_QUEUING_FRAMES;
 }
 static float
 calc_hill_height (float x, float z) {
@@ -363,7 +367,7 @@ create_land_geometry (D3DRenderContext * render_ctx) {
     uint16_t * indices = (uint16_t *)::malloc(sizeof(uint16_t) * nidx);
     GeomVertex * grid = (GeomVertex *)::malloc(sizeof(GeomVertex) * nvtx);
 
-    create_grid(360.0f, 360.0f, 50, 50, grid, indices);
+    create_grid(320.0f, 320.0f, 50, 50, grid, indices);
 
     // Extract the vertex elements we are interested and apply the height function to
     // each vertex.  In addition, color the vertices based on their height so we have
@@ -1653,8 +1657,8 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma region Initialization
 
     // Waves Initial Setup
-    uint32_t const nrow = 360;
-    uint32_t const ncols = 360;
+    uint32_t const nrow = 256;
+    uint32_t const ncols = 256;
     uint32_t const N_VTX = nrow * ncols;
     size_t wave_size = Waves_CalculateRequiredSize(nrow, ncols);
     BYTE * wave_memory = (BYTE *)::malloc(wave_size);
@@ -2066,8 +2070,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
             150.0f
         );
         sliderf = ImGui::IsItemActive();
+
         ImGui::ColorEdit3("Fog Color", (float*)&render_ctx->main_pass_constants.fog_color);
         coloredit = ImGui::IsItemActive();
+
+        static int i_curr = 0;
+        ImGui::Combo("Box Material", &i_curr, "   Wood\0   Wire-fenced\0\0");
+
         ImGui::Text("\n\n");
         ImGui::Separator();
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
@@ -2087,8 +2096,14 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         update_waves_vb(waves, render_ctx, &global_timer);
 
         CHECK_AND_FAIL(draw_main(render_ctx));
-        global_mouse_active = !(beginwnd || sliderf || coloredit);
         CHECK_AND_FAIL(move_to_next_frame(render_ctx, &render_ctx->frame_index, &render_ctx->backbuffer_index));
+
+        // End of the loop updates
+        if (0 == i_curr)
+            render_ctx->alphatested_ritems.ritems[0].mat = &render_ctx->materials[MAT_WOOD_CRATE];
+        else if (1 == i_curr)
+            render_ctx->alphatested_ritems.ritems[0].mat = &render_ctx->materials[MAT_WIRED_CRATE];
+        global_mouse_active = !(beginwnd || sliderf || coloredit);
     }
 #pragma endregion
 

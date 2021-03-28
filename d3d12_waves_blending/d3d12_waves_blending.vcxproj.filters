@@ -39,6 +39,9 @@
     <ClCompile Include="imgui\imgui_widgets.cpp">
       <Filter>DearImgui</Filter>
     </ClCompile>
+    <ClCompile Include="waves.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="headers\common.h">
