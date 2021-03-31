@@ -2017,7 +2017,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     imgui_cpu_handle.ptr += (render_ctx->cbv_srv_uav_descriptor_size * _COUNT_TEX);
 
     D3D12_GPU_DESCRIPTOR_HANDLE imgui_gpu_handle = render_ctx->srv_heap->GetGPUDescriptorHandleForHeapStart();
-    imgui_gpu_handle.ptr += (render_ctx->cbv_srv_uav_descriptor_size * _COUNT_MATERIAL);
+    imgui_gpu_handle.ptr += (render_ctx->cbv_srv_uav_descriptor_size * _COUNT_TEX);
 
     // Setup Platform/Renderer backends
     ImGui_ImplWin32_Init(hwnd);
