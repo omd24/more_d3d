@@ -349,3 +349,5 @@ MigrationBackup/
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
 /win32_box/*.rdc
+/d3d12_waves_texturing/*.exe
+*.exe

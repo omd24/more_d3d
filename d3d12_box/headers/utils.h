@@ -1,6 +1,6 @@
 #pragma once
 
-#include "headers/common.h"
+#include "common.h"
 
 #define SUCCEEDED(hr)   (((HRESULT)(hr)) >= 0)
 //#define SUCCEEDED_OPERATION(hr)   (((HRESULT)(hr)) == S_OK)
