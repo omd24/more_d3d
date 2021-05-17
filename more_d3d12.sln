@@ -21,6 +21,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "d3d12_skull_texturing", "d3
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "d3d12_waves_blending", "d3d12_waves_blending\d3d12_waves_blending.vcxproj", "{3ED0DA8E-23B9-4EA7-9D6E-A9347CBB14A0}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "d3d12_shapes_dyn_indxng", "d3d12_shapes_dyn_indxng\d3d12_shapes_dyn_indxng.vcxproj", "{626DB535-F836-4B08-99F8-DD5B2CAC68BD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -101,6 +103,14 @@ Global
 		{3ED0DA8E-23B9-4EA7-9D6E-A9347CBB14A0}.Release|x64.Build.0 = Release|x64
 		{3ED0DA8E-23B9-4EA7-9D6E-A9347CBB14A0}.Release|x86.ActiveCfg = Release|Win32
 		{3ED0DA8E-23B9-4EA7-9D6E-A9347CBB14A0}.Release|x86.Build.0 = Release|Win32
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Debug|x64.ActiveCfg = Debug|x64
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Debug|x64.Build.0 = Debug|x64
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Debug|x86.ActiveCfg = Debug|Win32
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Debug|x86.Build.0 = Debug|Win32
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Release|x64.ActiveCfg = Release|x64
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Release|x64.Build.0 = Release|x64
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Release|x86.ActiveCfg = Release|Win32
+		{626DB535-F836-4B08-99F8-DD5B2CAC68BD}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

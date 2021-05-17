@@ -351,3 +351,4 @@ MigrationBackup/
 /win32_box/*.rdc
 /d3d12_waves_texturing/*.exe
 *.exe
+*.exe
