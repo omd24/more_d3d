@@ -52,16 +52,18 @@ enum GEOM_INDEX {
     _COUNT_GEOM
 };
 enum MAT_INDEX {
-    MAT_WOOD_CRATE = 0,
-    MAT_GRASS = 1,
-    MAT_WATER = 2,
+    MAT_BRICK = 0,
+    MAT_STONE = 1,
+    MAT_TILE = 2,
+    MAT_CRATE = 3,
 
     _COUNT_MATERIAL
 };
 enum TEX_INDEX {
-    TEX_CRATE01 = 0,
-    TEX_WATER = 1,
-    TEX_GRASS = 2,
+    TEX_BRICK = 0,
+    TEX_STONE = 1,
+    TEX_TILE = 2,
+    TEX_CRATE = 3,
 
     _COUNT_TEX
 };
@@ -233,32 +235,41 @@ load_texture (
 }
 static void
 create_materials (Material out_materials []) {
-    strcpy_s(out_materials[MAT_GRASS].name, "grass");
-    out_materials[MAT_GRASS].mat_cbuffer_index = 0;
-    out_materials[MAT_GRASS].diffuse_srvheap_index = 0;
-    out_materials[MAT_GRASS].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_GRASS].fresnel_r0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-    out_materials[MAT_GRASS].roughness = 0.125f;
-    out_materials[MAT_GRASS].mat_transform = Identity4x4();
-    out_materials[MAT_GRASS].n_frames_dirty = NUM_QUEUING_FRAMES;
+    strcpy_s(out_materials[MAT_BRICK].name, "brick");
+    out_materials[MAT_BRICK].mat_cbuffer_index = 0;
+    out_materials[MAT_BRICK].diffuse_srvheap_index = 0;
+    out_materials[MAT_BRICK].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_BRICK].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+    out_materials[MAT_BRICK].roughness = 0.1f;
+    out_materials[MAT_BRICK].mat_transform = Identity4x4();
+    out_materials[MAT_BRICK].n_frames_dirty = NUM_QUEUING_FRAMES;
 
-    strcpy_s(out_materials[MAT_WATER].name, "water");
-    out_materials[MAT_WATER].mat_cbuffer_index = 1;
-    out_materials[MAT_WATER].diffuse_srvheap_index = 1;
-    out_materials[MAT_WATER].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
-    out_materials[MAT_WATER].fresnel_r0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-    out_materials[MAT_WATER].roughness = 0.0f;
-    out_materials[MAT_WATER].mat_transform = Identity4x4();
-    out_materials[MAT_WATER].n_frames_dirty = NUM_QUEUING_FRAMES;
+    strcpy_s(out_materials[MAT_STONE].name, "stone");
+    out_materials[MAT_STONE].mat_cbuffer_index = 1;
+    out_materials[MAT_STONE].diffuse_srvheap_index = 1;
+    out_materials[MAT_STONE].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
+    out_materials[MAT_STONE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_STONE].roughness = 0.3f;
+    out_materials[MAT_STONE].mat_transform = Identity4x4();
+    out_materials[MAT_STONE].n_frames_dirty = NUM_QUEUING_FRAMES;
 
-    strcpy_s(out_materials[MAT_WOOD_CRATE].name, "wood_crate");
-    out_materials[MAT_WOOD_CRATE].mat_cbuffer_index = 2;
-    out_materials[MAT_WOOD_CRATE].diffuse_srvheap_index = 2;
-    out_materials[MAT_WOOD_CRATE].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    out_materials[MAT_WOOD_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-    out_materials[MAT_WOOD_CRATE].roughness = 0.2f;
-    out_materials[MAT_WOOD_CRATE].mat_transform = Identity4x4();
-    out_materials[MAT_WOOD_CRATE].n_frames_dirty = NUM_QUEUING_FRAMES;
+    strcpy_s(out_materials[MAT_TILE].name, "tile");
+    out_materials[MAT_TILE].mat_cbuffer_index = 2;
+    out_materials[MAT_TILE].diffuse_srvheap_index = 2;
+    out_materials[MAT_TILE].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_TILE].fresnel_r0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+    out_materials[MAT_TILE].roughness = 0.3f;
+    out_materials[MAT_TILE].mat_transform = Identity4x4();
+    out_materials[MAT_TILE].n_frames_dirty = NUM_QUEUING_FRAMES;
+
+    strcpy_s(out_materials[MAT_CRATE].name, "crate");
+    out_materials[MAT_CRATE].mat_cbuffer_index = 3;
+    out_materials[MAT_CRATE].diffuse_srvheap_index = 3;
+    out_materials[MAT_CRATE].diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    out_materials[MAT_CRATE].fresnel_r0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    out_materials[MAT_CRATE].roughness = 0.2f;
+    out_materials[MAT_CRATE].mat_transform = Identity4x4();
+    out_materials[MAT_CRATE].n_frames_dirty = NUM_QUEUING_FRAMES;
 }
 static void
 create_shape_geometry (D3DRenderContext * render_ctx) {
@@ -443,6 +454,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
     UINT _curr = 0;
 
     DirectX::XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
     render_ctx->all_ritems.ritems[_curr].geometry = geom;
     render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -450,7 +462,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
     render_ctx->all_ritems.ritems[_curr].start_index_loc = geom->submesh_geoms[0].start_index_location;
     render_ctx->all_ritems.ritems[_curr].base_vertex_loc = geom->submesh_geoms[0].base_vertex_location;
     render_ctx->all_ritems.ritems[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_WATER];
+    render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_CRATE];
     render_ctx->all_ritems.ritems[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
     render_ctx->all_ritems.ritems[_curr].initialized = true;
     render_ctx->all_ritems.size++;
@@ -459,6 +471,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
     ++_curr;
 
     render_ctx->all_ritems.ritems[_curr].world = Identity4x4();
+    XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
     render_ctx->all_ritems.ritems[_curr].geometry = geom;
     render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -466,7 +479,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
     render_ctx->all_ritems.ritems[_curr].start_index_loc = geom->submesh_geoms[1].start_index_location;
     render_ctx->all_ritems.ritems[_curr].base_vertex_loc = geom->submesh_geoms[1].base_vertex_location;
     render_ctx->all_ritems.ritems[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-    render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_WOOD_CRATE];
+    render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_TILE];
     render_ctx->all_ritems.ritems[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
     render_ctx->all_ritems.ritems[_curr].initialized = true;
     render_ctx->all_ritems.size++;
@@ -482,6 +495,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         XMMATRIX right_sphere_world = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
 
         DirectX::XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].world, right_cylinder_world);
+        XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
         render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
         render_ctx->all_ritems.ritems[_curr].geometry = geom;
         render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -489,7 +503,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         render_ctx->all_ritems.ritems[_curr].start_index_loc = geom->submesh_geoms[3].start_index_location;
         render_ctx->all_ritems.ritems[_curr].base_vertex_loc = geom->submesh_geoms[3].base_vertex_location;
         render_ctx->all_ritems.ritems[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_WOOD_CRATE];
+        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_BRICK];
         render_ctx->all_ritems.ritems[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         render_ctx->all_ritems.ritems[_curr].initialized = true;
         render_ctx->all_ritems.size++;
@@ -498,6 +512,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         ++_curr;
 
         DirectX::XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].world, left_cylinder_world);
+        XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
         render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
         render_ctx->all_ritems.ritems[_curr].geometry = geom;
         render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -505,7 +520,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         render_ctx->all_ritems.ritems[_curr].start_index_loc = geom->submesh_geoms[3].start_index_location;
         render_ctx->all_ritems.ritems[_curr].base_vertex_loc = geom->submesh_geoms[3].base_vertex_location;
         render_ctx->all_ritems.ritems[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_WOOD_CRATE];
+        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_BRICK];
         render_ctx->all_ritems.ritems[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         render_ctx->all_ritems.ritems[_curr].initialized = true;
         render_ctx->all_ritems.size++;
@@ -514,6 +529,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         ++_curr;
 
         DirectX::XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].world, left_sphere_world);
+        XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
         render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
         render_ctx->all_ritems.ritems[_curr].geometry = geom;
         render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -521,7 +537,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         render_ctx->all_ritems.ritems[_curr].start_index_loc = geom->submesh_geoms[2].start_index_location;
         render_ctx->all_ritems.ritems[_curr].base_vertex_loc = geom->submesh_geoms[2].base_vertex_location;
         render_ctx->all_ritems.ritems[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_WOOD_CRATE];
+        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_STONE];
         render_ctx->all_ritems.ritems[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         render_ctx->all_ritems.ritems[_curr].initialized = true;
         render_ctx->all_ritems.size++;
@@ -530,6 +546,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         ++_curr;
 
         DirectX::XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].world, right_sphere_world);
+        XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
         render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
         render_ctx->all_ritems.ritems[_curr].geometry = geom;
         render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -537,7 +554,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         render_ctx->all_ritems.ritems[_curr].start_index_loc = geom->submesh_geoms[2].start_index_location;
         render_ctx->all_ritems.ritems[_curr].base_vertex_loc = geom->submesh_geoms[2].base_vertex_location;
         render_ctx->all_ritems.ritems[_curr].n_frames_dirty = NUM_QUEUING_FRAMES;
-        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_WOOD_CRATE];
+        render_ctx->all_ritems.ritems[_curr].mat = &render_ctx->materials[MAT_STONE];
         render_ctx->all_ritems.ritems[_curr].mat->n_frames_dirty = NUM_QUEUING_FRAMES;
         render_ctx->all_ritems.ritems[_curr].initialized = true;
         render_ctx->all_ritems.size++;
@@ -555,7 +572,6 @@ draw_render_items (
     UINT current_frame_index
 ) {
     UINT objcb_byte_size = (UINT64)sizeof(ObjectConstants);
-    //UINT objcb_byte_size = 256;
     for (size_t i = 0; i < ritem_array->size; ++i) {
         if (ritem_array->ritems[i].initialized) {
             D3D12_VERTEX_BUFFER_VIEW vbv = Mesh_GetVertexBufferView(ritem_array->ritems[i].geometry);
@@ -586,40 +602,52 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
     // Fill out the heap with actual descriptors
     D3D12_CPU_DESCRIPTOR_HANDLE descriptor_cpu_handle = render_ctx->srv_heap->GetCPUDescriptorHandleForHeapStart();
 
-    // grass texture
-    ID3D12Resource * grass_tex = render_ctx->textures[TEX_GRASS].resource;
+    // bricks texture
+    ID3D12Resource * brick_tex = render_ctx->textures[TEX_BRICK].resource;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
     srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv_desc.Format = grass_tex->GetDesc().Format;
+    srv_desc.Format = brick_tex->GetDesc().Format;
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MostDetailedMip = 0;
-    srv_desc.Texture2D.MipLevels = grass_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.MipLevels = brick_tex->GetDesc().MipLevels;
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
-    render_ctx->device->CreateShaderResourceView(grass_tex, &srv_desc, descriptor_cpu_handle);
+    render_ctx->device->CreateShaderResourceView(brick_tex, &srv_desc, descriptor_cpu_handle);
 
-    // water texture
-    ID3D12Resource * water_tex = render_ctx->textures[TEX_WATER].resource;
+    // stone texture
+    ID3D12Resource * stone_tex = render_ctx->textures[TEX_STONE].resource;
     memset(&srv_desc, 0, sizeof(srv_desc));         // reset desc
     srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv_desc.Format = water_tex->GetDesc().Format;
+    srv_desc.Format = stone_tex->GetDesc().Format;
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MostDetailedMip = 0;
-    srv_desc.Texture2D.MipLevels = water_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.MipLevels = stone_tex->GetDesc().MipLevels;
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
     descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptr
-    render_ctx->device->CreateShaderResourceView(water_tex, &srv_desc, descriptor_cpu_handle);
+    render_ctx->device->CreateShaderResourceView(stone_tex, &srv_desc, descriptor_cpu_handle);
 
-    // crate texture
-    ID3D12Resource * box_tex = render_ctx->textures[TEX_CRATE01].resource;
+    // tile texture
+    ID3D12Resource * tile_tex = render_ctx->textures[TEX_TILE].resource;
     memset(&srv_desc, 0, sizeof(srv_desc)); // reset desc
     srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv_desc.Format = box_tex->GetDesc().Format;
+    srv_desc.Format = tile_tex->GetDesc().Format;
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MostDetailedMip = 0;
-    srv_desc.Texture2D.MipLevels = box_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.MipLevels = tile_tex->GetDesc().MipLevels;
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
     descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
-    render_ctx->device->CreateShaderResourceView(box_tex, &srv_desc, descriptor_cpu_handle);
+    render_ctx->device->CreateShaderResourceView(tile_tex, &srv_desc, descriptor_cpu_handle);
+
+    // crate texture
+    ID3D12Resource * crate_tex = render_ctx->textures[TEX_CRATE].resource;
+    memset(&srv_desc, 0, sizeof(srv_desc)); // reset desc
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Format = crate_tex->GetDesc().Format;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Texture2D.MostDetailedMip = 0;
+    srv_desc.Texture2D.MipLevels = crate_tex->GetDesc().MipLevels;
+    srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
+    descriptor_cpu_handle.ptr += render_ctx->cbv_srv_uav_descriptor_size;   // next descriptor
+    render_ctx->device->CreateShaderResourceView(crate_tex, &srv_desc, descriptor_cpu_handle);
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
@@ -737,14 +765,13 @@ get_static_samplers (D3D12_STATIC_SAMPLER_DESC out_samplers []) {
 }
 static void
 create_root_signature (ID3D12Device * device, ID3D12RootSignature ** root_signature) {
+    // NOTE(omid): The 4 elements of texture array occupy registers t0, t1, t2, and t3
     D3D12_DESCRIPTOR_RANGE tex_table = {};
     tex_table.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     tex_table.NumDescriptors = _COUNT_TEX;
     tex_table.BaseShaderRegister = 0;
     tex_table.RegisterSpace = 0;
     tex_table.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-    // NOTE(omid): The 5 elements of texture array occupy registers t0, t1, t2, t3 and t4
 
     D3D12_ROOT_PARAMETER slot_root_params[4] = {};
     // NOTE(omid): Perfomance tip! Order from most frequent to least frequent.
@@ -812,7 +839,13 @@ compile_shader(wchar_t * path, wchar_t const * entry_point, wchar_t const * shad
         IDxcIncludeHandler * include_handler = nullptr;
         dxc_lib->CreateIncludeHandler(&include_handler);
 
-        ret = dxc_compiler->Compile(shader_blob_encoding, path, entry_point, shader_model, nullptr, 0, defines, n_defines, include_handler, &dxc_res);
+        LPCWSTR args [] = {_T("-Zi"), _T("-Od")};
+
+        ret = dxc_compiler->Compile(
+            shader_blob_encoding, path, entry_point, shader_model,
+            args, _countof(args),
+            defines, n_defines, include_handler, &dxc_res
+        );
         dxc_res->GetStatus(&ret);
         dxc_res->GetResult(out_shader_ptr);
         if (FAILED(ret)) {
@@ -1069,24 +1102,7 @@ update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
 }
 static void
 animate_material (Material * mat, GameTimer * timer) {
-    // Scroll the water material texture coordinates.
-    float& tu = mat->mat_transform(3, 0);
-    float& tv = mat->mat_transform(3, 1);
 
-    tu += 0.1f * timer->delta_time;
-    tv += 0.02f * timer->delta_time;
-
-    if (tu >= 1.0f)
-        tu -= 1.0f;
-
-    if (tv >= 1.0f)
-        tv -= 1.0f;
-
-    mat->mat_transform(3, 0) = tu;
-    mat->mat_transform(3, 1) = tv;
-
-    // Material has changed, so need to update cbuffer.
-    mat->n_frames_dirty = NUM_QUEUING_FRAMES;
 }
 static HRESULT
 move_to_next_frame (D3DRenderContext * render_ctx, UINT * out_frame_index, UINT * out_backbuffer_index) {
@@ -1180,7 +1196,7 @@ draw_main (D3DRenderContext * render_ctx) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = render_ctx->rtv_heap->GetCPUDescriptorHandleForHeapStart();
     rtv_handle.ptr = SIZE_T(INT64(rtv_handle.ptr) + INT64(render_ctx->backbuffer_index) * INT64(render_ctx->rtv_descriptor_size));    // -- apply initial offset
 
-    cmdlist->ClearRenderTargetView(rtv_handle, (float *)&render_ctx->main_pass_constants.fog_color, 0, nullptr);
+    cmdlist->ClearRenderTargetView(rtv_handle, Colors::LightSteelBlue, 0, nullptr);
     cmdlist->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     cmdlist->OMSetRenderTargets(1, &rtv_handle, true, &dsv_handle);
 
@@ -1515,7 +1531,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     HWND hwnd = CreateWindowEx(
         0,                                              // Optional window styles.
         wc.lpszClassName,                               // Window class
-        _T("Blurring app"),                    // Window title
+        _T("Shapes Dynamic Indexing app"),                    // Window title
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,               // Window style
         CW_USEDEFAULT, CW_USEDEFAULT, width, height,    // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance  /* Instance handle */,
@@ -1651,29 +1667,37 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 
 // ========================================================================================================
 #pragma region Load Textures
+    // brick
+    strcpy_s(render_ctx->textures[TEX_BRICK].name, "bricks");
+    wcscpy_s(render_ctx->textures[TEX_BRICK].filename, L"../Textures/bricks.dds");
+    load_texture(
+        render_ctx->device, render_ctx->direct_cmd_list,
+        render_ctx->textures[TEX_BRICK].filename,
+        &render_ctx->textures[TEX_BRICK]
+    );
+    // stone
+    strcpy_s(render_ctx->textures[TEX_STONE].name, "stone");
+    wcscpy_s(render_ctx->textures[TEX_STONE].filename, L"../Textures/stone.dds");
+    load_texture(
+        render_ctx->device, render_ctx->direct_cmd_list,
+        render_ctx->textures[TEX_STONE].filename,
+        &render_ctx->textures[TEX_STONE]
+    );
+    // tile
+    strcpy_s(render_ctx->textures[TEX_TILE].name, "tile");
+    wcscpy_s(render_ctx->textures[TEX_TILE].filename, L"../Textures/tile.dds");
+    load_texture(
+        render_ctx->device, render_ctx->direct_cmd_list,
+        render_ctx->textures[TEX_TILE].filename,
+        &render_ctx->textures[TEX_TILE]
+    );
     // crate
-    strcpy_s(render_ctx->textures[TEX_CRATE01].name, "woodcrate01");
-    wcscpy_s(render_ctx->textures[TEX_CRATE01].filename, L"../Textures/WoodCrate02.dds");
+    strcpy_s(render_ctx->textures[TEX_CRATE].name, "crate");
+    wcscpy_s(render_ctx->textures[TEX_CRATE].filename, L"../Textures/WoodCrate01.dds");
     load_texture(
         render_ctx->device, render_ctx->direct_cmd_list,
-        render_ctx->textures[TEX_CRATE01].filename,
-        &render_ctx->textures[TEX_CRATE01]
-    );
-    // water
-    strcpy_s(render_ctx->textures[TEX_WATER].name, "watertex");
-    wcscpy_s(render_ctx->textures[TEX_WATER].filename, L"../Textures/water1.dds");
-    load_texture(
-        render_ctx->device, render_ctx->direct_cmd_list,
-        render_ctx->textures[TEX_WATER].filename,
-        &render_ctx->textures[TEX_WATER]
-    );
-    // grass
-    strcpy_s(render_ctx->textures[TEX_GRASS].name, "grasstex");
-    wcscpy_s(render_ctx->textures[TEX_GRASS].filename, L"../Textures/grass.dds");
-    load_texture(
-        render_ctx->device, render_ctx->direct_cmd_list,
-        render_ctx->textures[TEX_GRASS].filename,
-        &render_ctx->textures[TEX_GRASS]
+        render_ctx->textures[TEX_CRATE].filename,
+        &render_ctx->textures[TEX_CRATE]
     );
 #pragma endregion
 
@@ -1762,8 +1786,13 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         ::memcpy(render_ctx->frame_resources[i].obj_cb_data_ptr, &render_ctx->frame_resources[i].obj_cb_data, sizeof(render_ctx->frame_resources[i].obj_cb_data));
 
         create_upload_buffer(render_ctx->device, (UINT64)mat_data_size * _COUNT_MATERIAL, &render_ctx->frame_resources[i].mat_data_buf_ptr, &render_ctx->frame_resources[i].mat_data_buf);
-        // Initialize cb data
-        ::memcpy(render_ctx->frame_resources[i].mat_data_buf_ptr, &render_ctx->frame_resources[i].mat_data, sizeof(render_ctx->frame_resources[i].mat_data));
+        // Initialize buffer data [experimenting]
+        MaterialData mat_data = {};
+        mat_data.diffuse_albedo = {1.0f, 1.0f, 1.0f, 1.0f};
+        mat_data.fresnel_r0 = {0.01f, 0.01f, 0.01f};
+        mat_data.roughness = 64.0f;
+        mat_data.mat_transform = Identity4x4();
+        ::memcpy(render_ctx->frame_resources[i].mat_data_buf_ptr, &mat_data, sizeof(render_ctx->frame_resources[i].mat_data));
 
         create_upload_buffer(render_ctx->device, pass_cb_size * 1, &render_ctx->frame_resources[i].pass_cb_data_ptr, &render_ctx->frame_resources[i].pass_cb);
         // Initialize cb data
@@ -1781,14 +1810,25 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma region Compile Shaders
     TCHAR shaders_path [] = _T("./shaders/default.hlsl");
 
+#if 1
     {   // standard shaders
-        compile_shader(shaders_path, _T("VertexShader_Main"), _T("vs_6_1"), nullptr, 0, &render_ctx->shaders[SHADER_DEFAULT_VS]);
+        compile_shader(shaders_path, _T("VS"), _T("vs_6_1"), nullptr, 0, &render_ctx->shaders[SHADER_DEFAULT_VS]);
 
-        int const n_define_fog = 1;
-        DxcDefine defines_fog[n_define_fog] = {};
-        defines_fog[0] = {.Name = _T("FOG"), .Value = _T("1")};
-        compile_shader(shaders_path, _T("PixelShader_Main"), _T("ps_6_1"), defines_fog, n_define_fog, &render_ctx->shaders[SHADER_OPAQUE_PS]);
+        compile_shader(shaders_path, _T("PS"), _T("ps_6_1"), nullptr, 0, &render_ctx->shaders[SHADER_OPAQUE_PS]);
     }
+#endif // 0
+
+#if 0
+    UINT8 * vs_data_ptr;
+    UINT8 * ps_data_ptr;
+    UINT vs_data_length;
+    UINT ps_data_length;
+
+    ReadDataFromFile(L"shader_mesh_simple_vert.cso", &vs_data_ptr, &vs_data_length);
+    ReadDataFromFile(L"shader_mesh_dynamic_indexing_pixel.cso", &ps_data_ptr, &ps_data_length);
+
+#endif // 0
+
 
 #pragma endregion Compile Shaders
 
@@ -1853,7 +1893,6 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
                 handle_keyboard_input(&global_scene_ctx, &global_timer);
                 update_camera(&global_scene_ctx);
 
-                animate_material(&render_ctx->materials[MAT_WATER], &global_timer);
                 update_obj_cbuffers(render_ctx);
                 update_mat_buffer(render_ctx);
                 update_pass_cbuffers(render_ctx, &global_timer);
