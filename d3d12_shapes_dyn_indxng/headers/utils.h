@@ -16,6 +16,18 @@
 
 using namespace DirectX;
 
+
+static XMFLOAT4X4
+Identity4x4() {
+    static XMFLOAT4X4 I(
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f);
+
+    return I;
+}
+
 struct Light {
     XMFLOAT3    strength;
     float       falloff_start;
@@ -27,29 +39,28 @@ struct Light {
 
 #define MAX_LIGHTS  16
 
-// -- per object constants
 struct ObjectConstants {
     XMFLOAT4X4 world;
     XMFLOAT4X4 tex_transform;
     UINT     MaterialIndex;
-	UINT     ObjPad0;
-	UINT     ObjPad1;
-	UINT     ObjPad2;
+    UINT     ObjPad0;
+    UINT     ObjPad1;
+    UINT     ObjPad2;
     float padding[28];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(256 == sizeof(ObjectConstants), "Constant buffer size must be 256b aligned");
-// -- per pass constants
+
 struct PassConstants {
     XMFLOAT4X4 view;
-    XMFLOAT4X4 inverse_view;
+    XMFLOAT4X4 inv_view;
     XMFLOAT4X4 proj;
-    XMFLOAT4X4 inverse_proj;
+    XMFLOAT4X4 inv_proj;
     XMFLOAT4X4 view_proj;
-    XMFLOAT4X4 inverse_view_proj;
+    XMFLOAT4X4 inv_view_proj;
     XMFLOAT3 eye_posw;
     float cbuffer_per_obj_pad1;
     XMFLOAT2 render_target_size;
-    XMFLOAT2 inverse_render_target_size;
+    XMFLOAT2 inv_render_target_size;
     float nearz;
     float farz;
     float total_time;
@@ -57,20 +68,31 @@ struct PassConstants {
 
     XMFLOAT4 ambient_light;
 
-    XMFLOAT4 fog_color;
-    float fog_start;
-    float fog_range;
-    XMFLOAT2 cbuffer_per_obj_pad2;
-
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
     // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
     // are spot lights for a maximum of MAX_LIGHTS per object.
     Light lights[MAX_LIGHTS];
 
-    float padding[8];  // Padding so the constant buffer is 256-byte aligned
+    float padding[16];  // Padding so the constant buffer is 256-byte aligned
 };
 static_assert(1280 == sizeof(PassConstants), "Constant buffer size must be 256b aligned");
+
+struct MaterialData {
+
+    UINT        diffuse_map_index;
+    UINT        mat_pad0;
+    UINT        mat_pad1;
+    UINT        mat_pad2;
+
+    XMFLOAT4    diffuse_albedo;
+    XMFLOAT3    fresnel_r0;
+    float       roughness;
+
+    // used in texture mapping
+    XMFLOAT4X4  mat_transform;
+
+};
 
 struct Vertex {
     XMFLOAT3 position;
@@ -84,24 +106,6 @@ struct GeomVertex {
     XMFLOAT2 TexC;
 };
 
-struct MaterialData {
-    UINT        diffuse_map_index;
-    UINT        mat_pad0;
-    UINT        mat_pad1;
-    UINT        mat_pad2;
-
-    XMFLOAT4    diffuse_albedo;
-    XMFLOAT3    fresnel_r0;
-    float       roughness;
-
-    // used in texture mapping
-    XMFLOAT4X4  mat_transform;
-
-
-
-    //float padding[36];  // Padding so the structured buffer is 256-byte aligned
-};
-//static_assert(256 == sizeof(MaterialData), "Structured buffer size must be 256b aligned");
 // NOTE(omid): A production 3D engine would likely create a hierarchy of Materials.
 // -- simple struct to represent a material. 
 struct Material {
@@ -188,22 +192,8 @@ struct RenderItem {
 
     Material * mat;
     MeshGeometry * geometry;
-
-    // Stuff for GPU waves render_items
-    XMFLOAT2 displacement_map_texel_size;
-    float grid_spatial_step;
 };
 
-static XMFLOAT4X4
-Identity4x4() {
-    static XMFLOAT4X4 I(
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f);
-
-    return I;
-}
 
 static int
 rand_int (int a, int b) {
@@ -315,10 +305,10 @@ update_subresources_heap (
     D3D12_RESOURCE_DESC intermediate_desc = intermediate->GetDesc();
     D3D12_RESOURCE_DESC destination_desc = dest_resource->GetDesc();
     _ASSERT_EXPR(!(intermediate_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
-                         intermediate_desc.Width < required_size + layouts[0].Offset ||
-                         required_size > (SIZE_T) - 1 ||
-                         (destination_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
-                          (first_subresource != 0 || n_subresources != 1))), _T("validation failed!"));
+                   intermediate_desc.Width < required_size + layouts[0].Offset ||
+                   required_size > (SIZE_T) - 1 ||
+                   (destination_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+                    (first_subresource != 0 || n_subresources != 1))), _T("validation failed!"));
 
     BYTE * data;
     /*_ASSERT_EXPR*/(intermediate->Map(0, NULL, reinterpret_cast<void**>(&data)), _T("Mapping intermediate resource failed"));

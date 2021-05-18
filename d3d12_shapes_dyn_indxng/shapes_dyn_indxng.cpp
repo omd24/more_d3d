@@ -271,29 +271,27 @@ create_materials (Material out_materials []) {
     out_materials[MAT_CRATE].mat_transform = Identity4x4();
     out_materials[MAT_CRATE].n_frames_dirty = NUM_QUEUING_FRAMES;
 }
+#define _BOX_VTX_CNT   24
+#define _BOX_IDX_CNT   36
+
+#define _GRID_VTX_CNT   2400
+#define _GRID_IDX_CNT   13806
+
+#define _SPHERE_VTX_CNT   401
+#define _SPHERE_IDX_CNT   2280
+
+#define _CYLINDER_VTX_CNT   485
+#define _CYLINDER_IDX_CNT   2520
+
+#define _TOTAL_VTX_CNT  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT)
+#define _TOTAL_IDX_CNT  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT)
+
 static void
 create_shape_geometry (D3DRenderContext * render_ctx) {
 
-    int const _BOX_VTX_CNT = 24;
-    int const _BOX_IDX_CNT = 36;
-
-    int const _GRID_VTX_CNT = 2400;
-    int const _GRID_IDX_CNT = 13806;
-
-    int const _SPHERE_VTX_CNT = 401;
-    int const _SPHERE_IDX_CNT = 2280;
-
-    int const _CYLINDER_VTX_CNT = 485;
-    int const _CYLINDER_IDX_CNT = 2520;
-
-    int const _TOTAL_VTX_CNT =  (_BOX_VTX_CNT + _GRID_VTX_CNT + _SPHERE_VTX_CNT + _CYLINDER_VTX_CNT);
-    int const _TOTAL_IDX_CNT =  (_BOX_IDX_CNT + _GRID_IDX_CNT + _SPHERE_IDX_CNT + _CYLINDER_IDX_CNT);
-
-
-    Vertex *    vts = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
-    uint16_t *  ids = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
-    BYTE *      memory = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
-
+    Vertex *    vertices = (Vertex *)::malloc(sizeof(Vertex) * _TOTAL_VTX_CNT);
+    uint16_t *  indices = (uint16_t *)::malloc(sizeof(uint16_t) * _TOTAL_IDX_CNT);
+    BYTE *      scratch = (BYTE *)::malloc(sizeof(GeomVertex) * _TOTAL_VTX_CNT + sizeof(uint16_t) * _TOTAL_IDX_CNT);
 
     // box
     UINT bsz = sizeof(GeomVertex) * _BOX_VTX_CNT;
@@ -308,14 +306,14 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
     UINT csz = ssz_id + sizeof(GeomVertex) * _CYLINDER_VTX_CNT;
     //UINT csz_id = csz + sizeof(uint16_t) * _CYLINDER_IDX_CNT; // not used
 
-    GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(memory);
-    uint16_t *      box_indices = reinterpret_cast<uint16_t *>(memory + bsz);
-    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(memory + bsz_id);
-    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(memory + gsz);
-    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(memory + gsz_id);
-    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(memory + ssz);
-    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(memory + ssz_id);
-    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(memory + csz);
+    GeomVertex *    box_vertices = reinterpret_cast<GeomVertex *>(scratch);
+    uint16_t *      box_indices = reinterpret_cast<uint16_t *>(scratch + bsz);
+    GeomVertex *    grid_vertices = reinterpret_cast<GeomVertex *>(scratch + bsz_id);
+    uint16_t *      grid_indices = reinterpret_cast<uint16_t *>(scratch + gsz);
+    GeomVertex *    sphere_vertices = reinterpret_cast<GeomVertex *>(scratch + gsz_id);
+    uint16_t *      sphere_indices = reinterpret_cast<uint16_t *>(scratch + ssz);
+    GeomVertex *    cylinder_vertices = reinterpret_cast<GeomVertex *>(scratch + ssz_id);
+    uint16_t *      cylinder_indices = reinterpret_cast<uint16_t *>(scratch + csz);
 
     create_box(1.5f, 0.5f, 1.5f, box_vertices, box_indices);
     create_grid16(20.0f, 30.0f, 60, 40, grid_vertices, grid_indices);
@@ -339,7 +337,6 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
 
     // Define the SubmeshGeometry that cover different 
     // regions of the vertex/index buffers.
-
     SubmeshGeometry box_submesh = {};
     box_submesh.index_count = _BOX_IDX_CNT;
     box_submesh.start_index_location = box_index_offset;
@@ -365,62 +362,61 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
 
     UINT k = 0;
     for (size_t i = 0; i < _BOX_VTX_CNT; ++i, ++k) {
-        vts[k].position = box_vertices[i].Position;
-        vts[k].normal = box_vertices[i].Normal;
-        vts[k].texc = box_vertices[i].TexC;
+        vertices[k].position = box_vertices[i].Position;
+        vertices[k].normal = box_vertices[i].Normal;
+        vertices[k].texc = box_vertices[i].TexC;
     }
 
     for (size_t i = 0; i < _GRID_VTX_CNT; ++i, ++k) {
-        vts[k].position = grid_vertices[i].Position;
-        vts[k].normal = grid_vertices[i].Normal;
-        vts[k].texc = grid_vertices[i].TexC;
+        vertices[k].position = grid_vertices[i].Position;
+        vertices[k].normal = grid_vertices[i].Normal;
+        vertices[k].texc = grid_vertices[i].TexC;
     }
 
     for (size_t i = 0; i < _SPHERE_VTX_CNT; ++i, ++k) {
-        vts[k].position = sphere_vertices[i].Position;
-        vts[k].normal = sphere_vertices[i].Normal;
-        vts[k].texc = sphere_vertices[i].TexC;
+        vertices[k].position = sphere_vertices[i].Position;
+        vertices[k].normal = sphere_vertices[i].Normal;
+        vertices[k].texc = sphere_vertices[i].TexC;
     }
 
     for (size_t i = 0; i < _CYLINDER_VTX_CNT; ++i, ++k) {
-        vts[k].position = cylinder_vertices[i].Position;
-        vts[k].normal = cylinder_vertices[i].Normal;
-        vts[k].texc = cylinder_vertices[i].TexC;
+        vertices[k].position = cylinder_vertices[i].Position;
+        vertices[k].normal = cylinder_vertices[i].Normal;
+        vertices[k].texc = cylinder_vertices[i].TexC;
     }
 
     // -- pack indices
     k = 0;
     for (size_t i = 0; i < _BOX_IDX_CNT; ++i, ++k) {
-        ids[k] = box_indices[i];
+        indices[k] = box_indices[i];
     }
 
     for (size_t i = 0; i < _GRID_IDX_CNT; ++i, ++k) {
-        ids[k] = grid_indices[i];
+        indices[k] = grid_indices[i];
     }
 
     for (size_t i = 0; i < _SPHERE_IDX_CNT; ++i, ++k) {
-        ids[k] = sphere_indices[i];
+        indices[k] = sphere_indices[i];
     }
 
     for (size_t i = 0; i < _CYLINDER_IDX_CNT; ++i, ++k) {
-        ids[k] = cylinder_indices[i];
+        indices[k] = cylinder_indices[i];
     }
 
     UINT vb_byte_size = _TOTAL_VTX_CNT * sizeof(Vertex);
     UINT ib_byte_size = _TOTAL_IDX_CNT * sizeof(uint16_t);
 
-    // -- Fill out render_ctx geom (output)
-
+    // -- Fill out render_ctx geom[0] (shapes)
     D3DCreateBlob(vb_byte_size, &render_ctx->geom[GEOM_SHAPES].vb_cpu);
-    if (vts)
-        CopyMemory(render_ctx->geom[GEOM_SHAPES].vb_cpu->GetBufferPointer(), vts, vb_byte_size);
+    if (vertices)
+        CopyMemory(render_ctx->geom[GEOM_SHAPES].vb_cpu->GetBufferPointer(), vertices, vb_byte_size);
 
     D3DCreateBlob(ib_byte_size, &render_ctx->geom[GEOM_SHAPES].ib_cpu);
-    if (ids)
-        CopyMemory(render_ctx->geom[GEOM_SHAPES].ib_cpu->GetBufferPointer(), ids, ib_byte_size);
+    if (indices)
+        CopyMemory(render_ctx->geom[GEOM_SHAPES].ib_cpu->GetBufferPointer(), indices, ib_byte_size);
 
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vts, vb_byte_size, &render_ctx->geom[GEOM_SHAPES].vb_uploader, &render_ctx->geom[GEOM_SHAPES].vb_gpu);
-    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, ids, ib_byte_size, &render_ctx->geom[GEOM_SHAPES].ib_uploader, &render_ctx->geom[GEOM_SHAPES].ib_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, vertices, vb_byte_size, &render_ctx->geom[GEOM_SHAPES].vb_uploader, &render_ctx->geom[GEOM_SHAPES].vb_gpu);
+    create_default_buffer(render_ctx->device, render_ctx->direct_cmd_list, indices, ib_byte_size, &render_ctx->geom[GEOM_SHAPES].ib_uploader, &render_ctx->geom[GEOM_SHAPES].ib_gpu);
 
     render_ctx->geom[GEOM_SHAPES].vb_byte_stide = sizeof(Vertex);
     render_ctx->geom[GEOM_SHAPES].vb_byte_size = vb_byte_size;
@@ -437,9 +433,9 @@ create_shape_geometry (D3DRenderContext * render_ctx) {
     render_ctx->geom[GEOM_SHAPES].submesh_geoms[3] = cylinder_submesh;
 
     // -- cleanup
-    free(memory);
-    free(ids);
-    free(vts);
+    free(scratch);
+    free(indices);
+    free(vertices);
 }
 static void
 create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
@@ -471,7 +467,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
     ++_curr;
 
     render_ctx->all_ritems.ritems[_curr].world = Identity4x4();
-    XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
+    XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
     render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
     render_ctx->all_ritems.ritems[_curr].geometry = geom;
     render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -529,7 +525,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         ++_curr;
 
         DirectX::XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].world, left_sphere_world);
-        XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
+        render_ctx->all_ritems.ritems[_curr].tex_transform = Identity4x4();
         render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
         render_ctx->all_ritems.ritems[_curr].geometry = geom;
         render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -546,7 +542,7 @@ create_render_items (D3DRenderContext * render_ctx, MeshGeometry * geom) {
         ++_curr;
 
         DirectX::XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].world, right_sphere_world);
-        XMStoreFloat4x4(&render_ctx->all_ritems.ritems[_curr].tex_transform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
+        render_ctx->all_ritems.ritems[_curr].tex_transform = Identity4x4();
         render_ctx->all_ritems.ritems[_curr].obj_cbuffer_index = _curr;
         render_ctx->all_ritems.ritems[_curr].geometry = geom;
         render_ctx->all_ritems.ritems[_curr].primitive_type = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -651,7 +647,7 @@ create_descriptor_heaps (D3DRenderContext * render_ctx) {
 
     // Create Render Target View Descriptor Heap
     D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
-    rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS + 1 /* offscreen render-target */;
+    rtv_heap_desc.NumDescriptors = NUM_BACKBUFFERS;
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     render_ctx->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&render_ctx->rtv_heap));
@@ -1075,15 +1071,15 @@ update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
     XMMATRIX inv_view_proj = XMMatrixInverse(&det_view_proj, view_proj);
 
     DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.view, XMMatrixTranspose(view));
-    DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.inverse_view, XMMatrixTranspose(inv_view));
+    DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.inv_view, XMMatrixTranspose(inv_view));
     DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.proj, XMMatrixTranspose(proj));
-    DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.inverse_proj, XMMatrixTranspose(inv_proj));
+    DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.inv_proj, XMMatrixTranspose(inv_proj));
     DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.view_proj, XMMatrixTranspose(view_proj));
-    DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.inverse_view_proj, XMMatrixTranspose(inv_view_proj));
+    DirectX::XMStoreFloat4x4(&render_ctx->main_pass_constants.inv_view_proj, XMMatrixTranspose(inv_view_proj));
     render_ctx->main_pass_constants.eye_posw = global_scene_ctx.eye_pos;
 
     render_ctx->main_pass_constants.render_target_size = XMFLOAT2((float)global_scene_ctx.width, (float)global_scene_ctx.height);
-    render_ctx->main_pass_constants.inverse_render_target_size = XMFLOAT2(1.0f / global_scene_ctx.width, 1.0f / global_scene_ctx.height);
+    render_ctx->main_pass_constants.inv_render_target_size = XMFLOAT2(1.0f / global_scene_ctx.width, 1.0f / global_scene_ctx.height);
     render_ctx->main_pass_constants.nearz = 1.0f;
     render_ctx->main_pass_constants.farz = 1000.0f;
     render_ctx->main_pass_constants.delta_time = timer->delta_time;
@@ -1091,11 +1087,11 @@ update_pass_cbuffers (D3DRenderContext * render_ctx, GameTimer * timer) {
     render_ctx->main_pass_constants.ambient_light = {.25f, .25f, .35f, 1.0f};
 
     render_ctx->main_pass_constants.lights[0].direction = {0.57735f, -0.57735f, 0.57735f};
-    render_ctx->main_pass_constants.lights[0].strength = {0.6f, 0.6f, 0.6f};
+    render_ctx->main_pass_constants.lights[0].strength  = {0.8f, 0.8f, 0.8f};
     render_ctx->main_pass_constants.lights[1].direction = {-0.57735f, -0.57735f, 0.57735f};
-    render_ctx->main_pass_constants.lights[1].strength = {0.3f, 0.3f, 0.3f};
+    render_ctx->main_pass_constants.lights[1].strength  = {0.4f, 0.4f, 0.4f};
     render_ctx->main_pass_constants.lights[2].direction = {0.0f, -0.707f, -0.707f};
-    render_ctx->main_pass_constants.lights[2].strength = {0.15f, 0.15f, 0.15f};
+    render_ctx->main_pass_constants.lights[2].strength  = {0.2f, 0.2f, 0.2f};
 
     uint8_t * pass_ptr = render_ctx->frame_resources[render_ctx->frame_index].pass_cb_data_ptr;
     memcpy(pass_ptr, &render_ctx->main_pass_constants, sizeof(PassConstants));
@@ -1269,11 +1265,6 @@ RenderContext_Init (D3DRenderContext * render_ctx) {
     render_ctx->scissor_rect.top = 0;
     render_ctx->scissor_rect.right = global_scene_ctx.width;
     render_ctx->scissor_rect.bottom = global_scene_ctx.height;
-
-    // -- initialize fog data
-    render_ctx->main_pass_constants.fog_color = {0.7f, 0.7f, 0.7f, 1.0f};
-    render_ctx->main_pass_constants.fog_start = 5.0f;
-    render_ctx->main_pass_constants.fog_range = 150.0f;
 
     // -- initialize light data
     render_ctx->main_pass_constants.lights[0].strength = {.5f,.5f,.5f};
@@ -1531,7 +1522,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     HWND hwnd = CreateWindowEx(
         0,                                              // Optional window styles.
         wc.lpszClassName,                               // Window class
-        _T("Shapes Dynamic Indexing app"),                    // Window title
+        _T("D3D Shapes Dynamic Indexing app"),                    // Window title
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,               // Window style
         CW_USEDEFAULT, CW_USEDEFAULT, width, height,    // Size and position settings
         0 /* Parent window */, 0 /* Menu */, hInstance  /* Instance handle */,
@@ -1693,7 +1684,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
     );
     // crate
     strcpy_s(render_ctx->textures[TEX_CRATE].name, "crate");
-    wcscpy_s(render_ctx->textures[TEX_CRATE].filename, L"../Textures/WoodCrate01.dds");
+    wcscpy_s(render_ctx->textures[TEX_CRATE].filename, L"../Textures/WoodCrate02.dds");
     load_texture(
         render_ctx->device, render_ctx->direct_cmd_list,
         render_ctx->textures[TEX_CRATE].filename,
@@ -1785,6 +1776,7 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
         // Initialize cb data
         ::memcpy(render_ctx->frame_resources[i].obj_cb_data_ptr, &render_ctx->frame_resources[i].obj_cb_data, sizeof(render_ctx->frame_resources[i].obj_cb_data));
 
+        // TODO(omid): Does material count really matter ??? 
         create_upload_buffer(render_ctx->device, (UINT64)mat_data_size * _COUNT_MATERIAL, &render_ctx->frame_resources[i].mat_data_buf_ptr, &render_ctx->frame_resources[i].mat_data_buf);
         // Initialize buffer data [experimenting]
         MaterialData mat_data = {};
@@ -1810,24 +1802,12 @@ WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT) {
 #pragma region Compile Shaders
     TCHAR shaders_path [] = _T("./shaders/default.hlsl");
 
-#if 1
     {   // standard shaders
-        compile_shader(shaders_path, _T("VS"), _T("vs_6_1"), nullptr, 0, &render_ctx->shaders[SHADER_DEFAULT_VS]);
+        compile_shader(shaders_path, _T("VS"), _T("vs_6_0"), nullptr, 0, &render_ctx->shaders[SHADER_DEFAULT_VS]);
 
-        compile_shader(shaders_path, _T("PS"), _T("ps_6_1"), nullptr, 0, &render_ctx->shaders[SHADER_OPAQUE_PS]);
+        compile_shader(shaders_path, _T("PS"), _T("ps_6_0"), nullptr, 0, &render_ctx->shaders[SHADER_OPAQUE_PS]);
     }
-#endif // 0
 
-#if 0
-    UINT8 * vs_data_ptr;
-    UINT8 * ps_data_ptr;
-    UINT vs_data_length;
-    UINT ps_data_length;
-
-    ReadDataFromFile(L"shader_mesh_simple_vert.cso", &vs_data_ptr, &vs_data_length);
-    ReadDataFromFile(L"shader_mesh_dynamic_indexing_pixel.cso", &ps_data_ptr, &ps_data_length);
-
-#endif // 0
 
 
 #pragma endregion Compile Shaders
