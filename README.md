@@ -1,6 +1,6 @@
 # more_d3d
 Compared to the beginning level samples I started with, (see https://github.com/omd24/learn_d3d),
-These are more interesting pet projects with Direct3D12 
+These are more interesting pet projects with Direct3D12. 
 Some of the topics are as follows:
 - Drawing 3D Shapes
 - Simple Light Model
